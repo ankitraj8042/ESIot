@@ -11,7 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "aedes": "^1.0.2",
+    "aedes": "^0.50.0",
     "aedes-server-factory": "^0.2.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
