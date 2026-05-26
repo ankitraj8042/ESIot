@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# PlatformIO build
+.pio/
+
+# IDE
+.vscode/
+.idea/
+
+# Vite
+bot-frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
