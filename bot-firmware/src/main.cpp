@@ -54,15 +54,15 @@ const bool kInvertLeft = false;
 const bool kInvertRight = false;
 
 // ==========================================
-// PID TUNING
+// PID TUNING (tested values from calibration)
 // ==========================================
-float Kp = 50.0f;
+float Kp = 47.0f;
 float Ki = 0.0f;
 float Kd = 30.0f;
 
-int baseSpeed = 95;
+int baseSpeed = 93;
 const int kMaxSpeed = 190;
-int turnSpeed = 95;
+int turnSpeed = 93;
 
 // Navigation constants
 const unsigned long kNodeCooldownMs = 800;
@@ -184,13 +184,22 @@ void setup() {
 }
 
 void loop() {
+  // NON-BLOCKING MQTT: try once, don't block line following
   if (!client.connected()) {
-    reconnect();
+    static unsigned long lastReconnectAttempt = 0;
+    if (millis() - lastReconnectAttempt > 3000) {
+      lastReconnectAttempt = millis();
+      reconnect();
+    }
   }
   client.loop();
 
-  // Always update gyro
-  mpu6050.update();
+  // Update gyro at 50Hz (every 20ms) — don't slow PID loop
+  static unsigned long lastGyroUpdate = 0;
+  if (millis() - lastGyroUpdate >= 20) {
+    mpu6050.update();
+    lastGyroUpdate = millis();
+  }
 
   // Buzzer state machine (non-blocking)
   buzzerUpdate();
@@ -665,21 +674,20 @@ void publishNavState(String state) {
 }
 
 void reconnect() {
-  while (!client.connected()) {
-    Serial.print("MQTT connecting...");
-    if (client.connect("ESP32BotClient")) {
-      Serial.println("connected");
-      client.subscribe("ankit/bot/command");
-      client.subscribe("ankit/bot/pid");
-      client.subscribe("ankit/bot/speeds");
-      client.subscribe("ankit/bot/mode");
-      client.subscribe("ankit/bot/manual");
-      client.subscribe("ankit/bot/route");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" retry in 5s");
-      delay(5000);
-    }
+  // NON-BLOCKING: try once and return immediately
+  Serial.print("MQTT connecting...");
+  if (client.connect("ESP32BotClient")) {
+    Serial.println("connected");
+    client.subscribe("ankit/bot/command");
+    client.subscribe("ankit/bot/pid");
+    client.subscribe("ankit/bot/speeds");
+    client.subscribe("ankit/bot/mode");
+    client.subscribe("ankit/bot/manual");
+    client.subscribe("ankit/bot/route");
+  } else {
+    Serial.print("failed, rc=");
+    Serial.print(client.state());
+    Serial.println(" will retry in 3s");
+    // No delay! Returns immediately so line following keeps working
   }
 }
