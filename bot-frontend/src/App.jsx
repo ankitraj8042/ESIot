@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import mqtt from 'mqtt';
-import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation } from 'lucide-react';
+import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation, RotateCw } from 'lucide-react';
 import './App.css';
 
 // ============================================
@@ -49,6 +49,7 @@ const App = () => {
   const [sensors, setSensors] = useState([0, 0, 0, 0, 0]);
   const [logs, setLogs] = useState([]);
   const [navStatus, setNavStatus] = useState('IDLE');
+  const [gyro, setGyro] = useState({ x: 0, y: 0, z: 0 });
   const logsEndRef = useRef(null);
   const lastHeartbeat = useRef(0);
 
@@ -65,7 +66,7 @@ const App = () => {
     const mc = mqtt.connect('ws://192.168.137.1:8883');
     mc.on('connect', () => {
       setIsConnected(true);
-      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive'].forEach(t => mc.subscribe('ankit/bot/' + t));
+      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive', 'gyro'].forEach(t => mc.subscribe('ankit/bot/' + t));
     });
     mc.on('close', () => { setIsConnected(false); setIsBotLive(false); });
     mc.on('message', (topic, msg) => {
@@ -78,6 +79,10 @@ const App = () => {
       else if (topic.endsWith('/telemetry')) { const [l, r] = m.split(','); setLeftMotor(+l); setRightMotor(+r); }
       else if (topic.endsWith('/sensors')) setSensors(m.split(',').map(Number));
       else if (topic.endsWith('/nav')) setNavStatus(m);
+      else if (topic.endsWith('/gyro')) {
+        const [x, y, z] = m.split(',');
+        setGyro({ x: (+x).toFixed(1), y: (+y).toFixed(1), z: (+z).toFixed(1) });
+      }
     });
     setClient(mc);
     return () => mc.end();
@@ -191,6 +196,15 @@ const App = () => {
               <div className="card-head sm"><Activity size={12} className="text-blue" /><h3>Motors</h3></div>
               <div className="motor-row"><span>L</span><div className="bar-bg"><div className="bar-fill blue" style={{ width: `${Math.min(Math.abs(leftMotor) / 255 * 100, 100)}%` }}></div></div><span className="mv">{leftMotor}</span></div>
               <div className="motor-row"><span>R</span><div className="bar-bg"><div className="bar-fill green" style={{ width: `${Math.min(Math.abs(rightMotor) / 255 * 100, 100)}%` }}></div></div><span className="mv">{rightMotor}</span></div>
+            </div>
+
+            <div className="card">
+              <div className="card-head sm"><RotateCw size={12} className="text-purple" /><h3>MPU6050 Gyro</h3></div>
+              <div className="gyro-grid">
+                <div className="gyro-axis"><span className="gyro-label">X</span><span className="gyro-val">{gyro.x}°</span></div>
+                <div className="gyro-axis"><span className="gyro-label">Y</span><span className="gyro-val">{gyro.y}°</span></div>
+                <div className="gyro-axis"><span className="gyro-label">Z</span><span className="gyro-val z">{gyro.z}°</span></div>
+              </div>
             </div>
 
             <div className="card terminal-card">

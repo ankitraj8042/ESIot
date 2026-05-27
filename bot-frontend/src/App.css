@@ -158,6 +158,13 @@ body {
 .bar-fill.green { background: var(--green); }
 .mv { font-family: monospace; font-size: 0.75rem; min-width: 26px; text-align: right; }
 
+/* Gyro */
+.gyro-grid { display: flex; gap: 10px; }
+.gyro-axis { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px; background: rgba(0,0,0,0.25); border-radius: 6px; }
+.gyro-label { font-size: 0.6rem; color: var(--muted); font-weight: 600; }
+.gyro-val { font-family: monospace; font-size: 0.85rem; font-weight: 700; color: var(--text); }
+.gyro-val.z { color: var(--purple); }
+
 /* Terminal */
 .terminal-card { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .terminal { background: var(--terminal); border-radius: 6px; padding: 8px; flex: 1; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.65rem; border: 1px solid var(--border); }
