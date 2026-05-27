@@ -359,10 +359,9 @@ void loop() {
     }
 
     case NAV_SEEK: {
-      // Phase 2: Spin SLOWLY until center sensor finds the new line
-      int seekSpeed = 100;
-      if (turnDir > 0) setMotors(-seekSpeed, seekSpeed);
-      else              setMotors(seekSpeed, -seekSpeed);
+      // Phase 2: Keep spinning until center sensor finds the new line
+      if (turnDir > 0) setMotors(-turnSpeed, turnSpeed);
+      else              setMotors(turnSpeed, -turnSpeed);
 
       int b[5]; int cnt, ws;
       readSensors(b, cnt, ws);
