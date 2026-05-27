@@ -38,7 +38,7 @@ float Kp = 50.0f;
 float Ki = 0.0f;
 float Kd = 30.0f;
 int baseSpeed = 95;
-const int turnSpeed = 120;
+const int turnSpeed = 160;  // motor PWM during turns (both nav and manual)
 
 // Navigation timing (tune these on your track)
 const unsigned long kTurnTimeMs     = 500;  // spin duration for ~90° turn
@@ -211,8 +211,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     if (driveMode == "manual" && isRunning) {
       if (msg == "FWD")        setMotors(baseSpeed, baseSpeed);
       else if (msg == "BWD")   setMotors(-baseSpeed, -baseSpeed);
-      else if (msg == "LEFT")  setMotors(-baseSpeed, baseSpeed);
-      else if (msg == "RIGHT") setMotors(baseSpeed, -baseSpeed);
+      else if (msg == "LEFT")  setMotors(-turnSpeed, turnSpeed);
+      else if (msg == "RIGHT") setMotors(turnSpeed, -turnSpeed);
       else                     stopMotors();
     }
   }
