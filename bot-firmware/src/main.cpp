@@ -37,44 +37,27 @@ const int weights[5] = {-2, -1, 0, 1, 2};
 const int kI2CSda = 22;
 const int kI2CScl = 21;
 
-// Buzzer (passive buzzer — uses PWM tone)
+// Buzzer
 const int kBuzzerPin = 13;
 const int kBuzzerChannel = 2;
 
-// Voltage sensor (0–25V module on ADC1)
-const int kVoltageSensorPin = 33;
-
-// Sensor config
-const int kLineActiveLevel = LOW;
-const bool kInvertLineSense = false;
-
-// Motor direction corrections
-const bool kSwapSides = false;
-const bool kInvertLeft = false;
-const bool kInvertRight = false;
-
 // ==========================================
-// PID TUNING (tested values from calibration)
+// PID TUNING (your working values)
 // ==========================================
-float Kp = 47.0f;
+float Kp = 50.0f;
 float Ki = 0.0f;
 float Kd = 30.0f;
 
-int baseSpeed = 93;
+int baseSpeed = 95;
 const int kMaxSpeed = 190;
-int turnSpeed = 93;
+int turnSpeed = 95;
 
 // Navigation constants
 const unsigned long kNodeCooldownMs = 800;
 const unsigned long kCrossingTimeMs = 350;
 
-// Battery constants (2S Li-ion: 6.0V empty, 8.4V full)
-const float kBatteryFull = 8.4f;
-const float kBatteryEmpty = 6.0f;
-const float kBatteryLow = 6.6f;  // ~25% — trigger buzzer warning
-
 // ==========================================
-// NAVIGATION STATE MACHINE
+// STATE
 // ==========================================
 enum NavState {
   NAV_LINE_FOLLOW,
@@ -84,9 +67,6 @@ enum NavState {
   NAV_STOPPED
 };
 
-// ==========================================
-// GLOBALS
-// ==========================================
 WiFiClient espClient;
 PubSubClient client(espClient);
 MPU6050 mpu6050(Wire);
@@ -94,13 +74,12 @@ MPU6050 mpu6050(Wire);
 bool isRunning = false;
 String driveMode = "line";
 
-// PID state
+// PID
 float lastError = 0.0f;
 float integral = 0.0f;
 unsigned long lastPidMs = 0;
-unsigned long lastDebugMs = 0;
 
-// Navigation state
+// Navigation
 NavState navState = NAV_LINE_FOLLOW;
 String routeQueue = "";
 int routeIndex = 0;
@@ -109,66 +88,51 @@ float turnStartAngle = 0.0f;
 float turnTargetDelta = 0.0f;
 unsigned long crossingStartMs = 0;
 
-// Battery monitoring (smoothed)
-float batteryVoltage = 7.4f;  // start at nominal
-bool batteryLowWarned = false;
-
-// Buzzer state (non-blocking)
+// Buzzer
 unsigned long buzzerOffTime = 0;
 int buzzerBeepCount = 0;
 unsigned long buzzerNextBeep = 0;
 
 // ==========================================
-// FUNCTION PROTOTYPES
+// PROTOTYPES
 // ==========================================
 void setup_wifi();
 void reconnect();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
-void driveMotors(int leftSpeed, int rightSpeed, bool applySwap);
 void setMotors(int leftSpeed, int rightSpeed);
 void stopMotors();
 void followLine();
-void readSensors(int sensorBits[5], int &activeCount, int &weightedSum);
+void readSensors(int bits[5], int &cnt, int &wsum);
 void sendLog(String msg);
-void publishNavState(String state);
-String getNextRouteCommand();
-void readBattery();
-void buzzerTone(int freq, int durationMs);
-void buzzerDestinationReached();
+void publishNav(String s);
+String popRouteCmd();
+void buzzerPlay();
 void buzzerUpdate();
 
+// ==========================================
+// SETUP
+// ==========================================
 void setup() {
   Serial.begin(115200);
 
-  // Motor Pins
   pinMode(leftMotorPin1,  OUTPUT);
   pinMode(leftMotorPin2,  OUTPUT);
   pinMode(rightMotorPin1, OUTPUT);
   pinMode(rightMotorPin2, OUTPUT);
 
-  // IR Pins
-  for (int i = 0; i < 5; i++) {
-    pinMode(irPins[i], INPUT);
-  }
+  for (int i = 0; i < 5; i++) pinMode(irPins[i], INPUT);
 
-  // PWM Setup for motors
   ledcSetup(RIGHT_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
   ledcSetup(LEFT_CHANNEL,  PWM_FREQ, PWM_RESOLUTION);
   ledcAttachPin(enableRightMotor, RIGHT_CHANNEL);
   ledcAttachPin(enableLeftMotor,  LEFT_CHANNEL);
 
-  // Buzzer PWM setup
   ledcSetup(kBuzzerChannel, 2000, 8);
   ledcAttachPin(kBuzzerPin, kBuzzerChannel);
   ledcWrite(kBuzzerChannel, 0);
 
-  // Voltage sensor
-  analogReadResolution(12);
-  pinMode(kVoltageSensorPin, INPUT);
-
   stopMotors();
 
-  // MPU6050 Setup
   Wire.begin(kI2CSda, kI2CScl);
   mpu6050.begin();
   Serial.println("Calibrating gyro... keep bot still!");
@@ -180,287 +144,204 @@ void setup() {
   client.setCallback(mqttCallback);
 
   lastPidMs = millis();
-  lastDebugMs = millis();
 }
 
+// ==========================================
+// MAIN LOOP
+// ==========================================
 void loop() {
-  // NON-BLOCKING MQTT: try once, don't block line following
+  // Non-blocking MQTT reconnect
   if (!client.connected()) {
-    static unsigned long lastReconnectAttempt = 0;
-    if (millis() - lastReconnectAttempt > 3000) {
-      lastReconnectAttempt = millis();
+    static unsigned long lastTry = 0;
+    if (millis() - lastTry > 3000) {
+      lastTry = millis();
       reconnect();
     }
   }
   client.loop();
 
-  // Update gyro at 50Hz (every 20ms) — don't slow PID loop
-  static unsigned long lastGyroUpdate = 0;
-  if (millis() - lastGyroUpdate >= 20) {
+  // Gyro update at 50Hz
+  static unsigned long lastGyro = 0;
+  if (millis() - lastGyro >= 20) {
     mpu6050.update();
-    lastGyroUpdate = millis();
+    lastGyro = millis();
   }
 
-  // Buzzer state machine (non-blocking)
   buzzerUpdate();
 
-  // Publish alive heartbeat every 500ms (for dashboard Live/Off indicator)
+  // Heartbeat for Live/Off indicator
   static unsigned long lastAlive = 0;
   if (millis() - lastAlive > 500) {
-    if (client.connected()) {
-      client.publish("ankit/bot/alive", "1");
-    }
+    if (client.connected()) client.publish("ankit/bot/alive", "1");
     lastAlive = millis();
   }
 
-  // Read battery every 2 seconds
-  static unsigned long lastBatteryRead = 0;
-  if (millis() - lastBatteryRead > 2000) {
-    readBattery();
-    lastBatteryRead = millis();
+  // ==========================================
+  // MAIN LOGIC
+  // ==========================================
+  if (!isRunning) {
+    stopMotors();
+    return;
   }
 
-  if (isRunning) {
-    if (driveMode == "line") {
-      // ==========================================
-      // NAVIGATION STATE MACHINE
-      // ==========================================
-      switch (navState) {
+  if (driveMode == "manual") return; // manual handled by MQTT callback
 
-        case NAV_LINE_FOLLOW: {
-          followLine();
+  // LINE FOLLOWING + NAVIGATION
+  switch (navState) {
 
-          // Check for node (only after cooldown)
-          if (millis() > nodeCooldownUntil && routeQueue.length() > 0) {
-            int sensorBits[5];
-            int activeCount, weightedSum;
-            readSensors(sensorBits, activeCount, weightedSum);
+    case NAV_LINE_FOLLOW: {
+      followLine();
 
-            bool leftSide  = sensorBits[0] || sensorBits[1];
-            bool rightSide = sensorBits[3] || sensorBits[4];
+      // Node detection: only when we have a route to execute
+      if (millis() > nodeCooldownUntil && routeQueue.length() > 0) {
+        int bits[5]; int cnt, wsum;
+        readSensors(bits, cnt, wsum);
+        bool leftSide  = bits[0] || bits[1];
+        bool rightSide = bits[3] || bits[4];
 
-            // T-junction: both sides have sensors active (4 sensors)
-            // + intersection: all 5 sensors active
-            // L-turns are handled naturally by PID — no detection needed
-            bool isNode = (leftSide && rightSide);
-
-            if (isNode) {
-              stopMotors();
-              navState = NAV_NODE_DETECTED;
-              sendLog("NODE DETECTED (active=" + String(activeCount) + ")");
-              publishNavState("NODE_DETECTED");
-            }
-          }
-          break;
-        }
-
-        case NAV_NODE_DETECTED: {
-          String cmd = getNextRouteCommand();
-
-          if (cmd == "") {
-            // Route finished — destination reached!
-            stopMotors();
-            navState = NAV_STOPPED;
-            buzzerDestinationReached();
-            sendLog("Destination reached!");
-            publishNavState("DESTINATION_REACHED");
-            break;
-          }
-
-          sendLog("Executing: " + cmd);
-
-          if (cmd == "L") {
-            turnStartAngle = mpu6050.getAngleZ();
-            turnTargetDelta = 90.0f;
-            navState = NAV_TURNING;
-            publishNavState("TURNING_LEFT");
-          } else if (cmd == "R") {
-            turnStartAngle = mpu6050.getAngleZ();
-            turnTargetDelta = -90.0f;
-            navState = NAV_TURNING;
-            publishNavState("TURNING_RIGHT");
-          } else if (cmd == "S") {
-            crossingStartMs = millis();
-            navState = NAV_CROSSING;
-            publishNavState("CROSSING");
-          } else if (cmd == "X") {
-            stopMotors();
-            navState = NAV_STOPPED;
-            buzzerDestinationReached();
-            sendLog("Destination reached (STOP)");
-            publishNavState("DESTINATION_REACHED");
-          }
-          break;
-        }
-
-        case NAV_TURNING: {
-          if (turnTargetDelta > 0) {
-            setMotors(-turnSpeed, turnSpeed);  // Turn LEFT
-          } else {
-            setMotors(turnSpeed, -turnSpeed);  // Turn RIGHT
-          }
-
-          float currentAngle = mpu6050.getAngleZ();
-          float delta = currentAngle - turnStartAngle;
-
-          bool turnComplete = false;
-          if (turnTargetDelta > 0 && delta >= turnTargetDelta) turnComplete = true;
-          if (turnTargetDelta < 0 && delta <= turnTargetDelta) turnComplete = true;
-
-          if (turnComplete) {
-            stopMotors();
-            delay(50);
-            lastError = 0.0f;
-            integral = 0.0f;
-            lastPidMs = millis();
-            nodeCooldownUntil = millis() + kNodeCooldownMs;
-            navState = NAV_LINE_FOLLOW;
-            sendLog("Turn complete. Delta: " + String(delta, 1));
-            publishNavState("FOLLOWING");
-          }
-
-          // Debug angle during turn
-          static unsigned long lastTurnDebug = 0;
-          if (millis() - lastTurnDebug > 100) {
-            lastTurnDebug = millis();
-            Serial.printf("TURN: start=%.1f cur=%.1f delta=%.1f target=%.1f\n",
-              turnStartAngle, currentAngle, delta, turnTargetDelta);
-          }
-          break;
-        }
-
-        case NAV_CROSSING: {
-          setMotors(baseSpeed, baseSpeed);
-          if (millis() - crossingStartMs >= kCrossingTimeMs) {
-            lastError = 0.0f;
-            integral = 0.0f;
-            lastPidMs = millis();
-            nodeCooldownUntil = millis() + kNodeCooldownMs;
-            navState = NAV_LINE_FOLLOW;
-            sendLog("Crossing complete");
-            publishNavState("FOLLOWING");
-          }
-          break;
-        }
-
-        case NAV_STOPPED: {
+        if (leftSide && rightSide) {  // T-junction or + intersection
           stopMotors();
-          break;
+          navState = NAV_NODE_DETECTED;
+          sendLog("NODE DETECTED");
+          publishNav("NODE_DETECTED");
         }
       }
+      break;
     }
-    // Manual mode is handled directly by MQTT callbacks
-  } else {
-    stopMotors();
+
+    case NAV_NODE_DETECTED: {
+      String cmd = popRouteCmd();
+      if (cmd == "" || cmd == "X") {
+        stopMotors();
+        isRunning = false;
+        navState = NAV_STOPPED;
+        buzzerPlay();
+        sendLog("Destination reached!");
+        publishNav("DESTINATION_REACHED");
+        break;
+      }
+
+      sendLog("Executing: " + cmd);
+
+      if (cmd == "L") {
+        turnStartAngle = mpu6050.getAngleZ();
+        turnTargetDelta = 90.0f;
+        navState = NAV_TURNING;
+        publishNav("TURNING_LEFT");
+      } else if (cmd == "R") {
+        turnStartAngle = mpu6050.getAngleZ();
+        turnTargetDelta = -90.0f;
+        navState = NAV_TURNING;
+        publishNav("TURNING_RIGHT");
+      } else if (cmd == "S") {
+        crossingStartMs = millis();
+        navState = NAV_CROSSING;
+        publishNav("CROSSING");
+      }
+      break;
+    }
+
+    case NAV_TURNING: {
+      if (turnTargetDelta > 0) setMotors(-turnSpeed, turnSpeed);   // LEFT
+      else                     setMotors(turnSpeed, -turnSpeed);    // RIGHT
+
+      float delta = mpu6050.getAngleZ() - turnStartAngle;
+      bool done = (turnTargetDelta > 0) ? (delta >= turnTargetDelta) : (delta <= turnTargetDelta);
+
+      if (done) {
+        stopMotors();
+        delay(50);
+        lastError = 0; integral = 0; lastPidMs = millis();
+        nodeCooldownUntil = millis() + kNodeCooldownMs;
+        navState = NAV_LINE_FOLLOW;
+        sendLog("Turn done, delta=" + String(delta, 1));
+        publishNav("FOLLOWING");
+      }
+      break;
+    }
+
+    case NAV_CROSSING: {
+      setMotors(baseSpeed, baseSpeed);
+      if (millis() - crossingStartMs >= kCrossingTimeMs) {
+        lastError = 0; integral = 0; lastPidMs = millis();
+        nodeCooldownUntil = millis() + kNodeCooldownMs;
+        navState = NAV_LINE_FOLLOW;
+        sendLog("Crossing done");
+        publishNav("FOLLOWING");
+      }
+      break;
+    }
+
+    case NAV_STOPPED: {
+      stopMotors();
+      break;
+    }
   }
 }
 
 // ==========================================
 // SENSOR READING
 // ==========================================
-void readSensors(int sensorBits[5], int &activeCount, int &weightedSum) {
-  activeCount = 0;
-  weightedSum = 0;
+void readSensors(int bits[5], int &cnt, int &wsum) {
+  cnt = 0; wsum = 0;
   for (int i = 0; i < 5; i++) {
-    int reading = digitalRead(irPins[i]);
-    bool onLine = (reading == kLineActiveLevel);
-    if (kInvertLineSense) onLine = !onLine;
-    sensorBits[i] = onLine ? 1 : 0;
-    if (onLine) {
-      activeCount++;
-      weightedSum += weights[i];
-    }
+    bits[i] = (digitalRead(irPins[i]) == LOW) ? 1 : 0;
+    if (bits[i]) { cnt++; wsum += weights[i]; }
   }
 }
 
 // ==========================================
 // MOTOR CONTROL
 // ==========================================
-void driveMotors(int leftSpeed, int rightSpeed, bool applySwap) {
-  if (applySwap && kSwapSides) {
-    int temp = leftSpeed;
-    leftSpeed = rightSpeed;
-    rightSpeed = temp;
-  }
-  if (kInvertLeft) leftSpeed = -leftSpeed;
-  if (kInvertRight) rightSpeed = -rightSpeed;
+void setMotors(int leftSpd, int rightSpd) {
+  // Left motor
+  if (leftSpd > 0)      { digitalWrite(leftMotorPin1, HIGH); digitalWrite(leftMotorPin2, LOW); }
+  else if (leftSpd < 0) { digitalWrite(leftMotorPin1, LOW);  digitalWrite(leftMotorPin2, HIGH); }
+  else                   { digitalWrite(leftMotorPin1, LOW);  digitalWrite(leftMotorPin2, LOW); }
+  ledcWrite(LEFT_CHANNEL, abs(leftSpd));
 
-  int leftOut = leftSpeed;
-  int rightOut = rightSpeed;
+  // Right motor
+  if (rightSpd > 0)      { digitalWrite(rightMotorPin1, HIGH); digitalWrite(rightMotorPin2, LOW); }
+  else if (rightSpd < 0) { digitalWrite(rightMotorPin1, LOW);  digitalWrite(rightMotorPin2, HIGH); }
+  else                    { digitalWrite(rightMotorPin1, LOW);  digitalWrite(rightMotorPin2, LOW); }
+  ledcWrite(RIGHT_CHANNEL, abs(rightSpd));
 
-  if (leftOut > 0) {
-    digitalWrite(leftMotorPin1, HIGH);
-    digitalWrite(leftMotorPin2, LOW);
-  } else if (leftOut < 0) {
-    digitalWrite(leftMotorPin1, LOW);
-    digitalWrite(leftMotorPin2, HIGH);
-  } else {
-    digitalWrite(leftMotorPin1, LOW);
-    digitalWrite(leftMotorPin2, LOW);
-  }
-  ledcWrite(LEFT_CHANNEL, abs(leftOut));
-
-  if (rightOut > 0) {
-    digitalWrite(rightMotorPin1, HIGH);
-    digitalWrite(rightMotorPin2, LOW);
-  } else if (rightOut < 0) {
-    digitalWrite(rightMotorPin1, LOW);
-    digitalWrite(rightMotorPin2, HIGH);
-  } else {
-    digitalWrite(rightMotorPin1, LOW);
-    digitalWrite(rightMotorPin2, LOW);
-  }
-  ledcWrite(RIGHT_CHANNEL, abs(rightOut));
-
-  // Publish telemetry (5 Hz)
-  static unsigned long lastTelemetry = 0;
-  if (millis() - lastTelemetry > 200) {
+  // Publish telemetry at 5Hz
+  static unsigned long lastTel = 0;
+  if (millis() - lastTel > 200) {
     if (client.connected()) {
-      String msg = String(leftOut) + "," + String(rightOut);
+      String msg = String(leftSpd) + "," + String(rightSpd);
       client.publish("ankit/bot/telemetry", msg.c_str());
     }
-    lastTelemetry = millis();
+    lastTel = millis();
   }
 }
 
-void setMotors(int leftSpeed, int rightSpeed) {
-  driveMotors(leftSpeed, rightSpeed, true);
-}
-
-void stopMotors() {
-  setMotors(0, 0);
-}
+void stopMotors() { setMotors(0, 0); }
 
 // ==========================================
 // PID LINE FOLLOWING
 // ==========================================
 void followLine() {
   unsigned long now = millis();
+  int bits[5]; int cnt, wsum;
+  readSensors(bits, cnt, wsum);
 
-  int sensorBits[5];
-  int activeCount, weightedSum;
-  readSensors(sensorBits, activeCount, weightedSum);
-
-  // Publish sensor readings (5 Hz)
-  static unsigned long lastSensorPub = 0;
-  if (now - lastSensorPub > 200) {
+  // Publish sensors at 5Hz
+  static unsigned long lastSens = 0;
+  if (now - lastSens > 200) {
     if (client.connected()) {
-      String msg = String(sensorBits[0]) + "," + String(sensorBits[1]) + ","
-                 + String(sensorBits[2]) + "," + String(sensorBits[3]) + ","
-                 + String(sensorBits[4]);
+      String msg = String(bits[0])+","+String(bits[1])+","+String(bits[2])+","+String(bits[3])+","+String(bits[4]);
       client.publish("ankit/bot/sensors", msg.c_str());
     }
-    lastSensorPub = now;
+    lastSens = now;
   }
 
-  // PID Calculation
   float error = lastError;
-  if (activeCount > 0) {
-    error = static_cast<float>(weightedSum) / activeCount;
-  }
+  if (cnt > 0) error = (float)wsum / cnt;
 
   float dt = (now - lastPidMs) / 1000.0f;
-  if (dt <= 0.0f) dt = 0.01f;
+  if (dt <= 0) dt = 0.01f;
   lastPidMs = now;
 
   integral += error * dt;
@@ -468,111 +349,49 @@ void followLine() {
   float correction = (Kp * error) + (Ki * integral) + (Kd * derivative);
   lastError = error;
 
-  int leftSpeed = baseSpeed + static_cast<int>(correction);
-  int rightSpeed = baseSpeed - static_cast<int>(correction);
-  leftSpeed = constrain(leftSpeed, 0, kMaxSpeed);
-  rightSpeed = constrain(rightSpeed, 0, kMaxSpeed);
-
-  setMotors(leftSpeed, rightSpeed);
-
-  // Debug
-  if (now - lastDebugMs >= 200) {
-    lastDebugMs = now;
-    Serial.printf("S:%d%d%d%d%d E:%.2f L:%d R:%d Z:%.1f\n",
-      sensorBits[0], sensorBits[1], sensorBits[2], sensorBits[3], sensorBits[4],
-      error, leftSpeed, rightSpeed, mpu6050.getAngleZ());
-  }
+  int L = constrain(baseSpeed + (int)correction, 0, kMaxSpeed);
+  int R = constrain(baseSpeed - (int)correction, 0, kMaxSpeed);
+  setMotors(L, R);
 }
 
 // ==========================================
 // ROUTE QUEUE
 // ==========================================
-String getNextRouteCommand() {
-  if (routeQueue.length() == 0 || routeIndex < 0) return "";
+String popRouteCmd() {
+  if (routeQueue.length() == 0) return "";
 
-  int startPos = 0;
-  int commaPos = -1;
-
-  // Walk to the routeIndex-th token
-  for (int i = 0; i <= routeIndex; i++) {
-    startPos = (i == 0) ? 0 : commaPos + 1;
-    commaPos = routeQueue.indexOf(',', startPos);
-    if (commaPos == -1 && i < routeIndex) return "";
-  }
-
+  int comma = routeQueue.indexOf(',');
   String cmd;
-  if (commaPos == -1) cmd = routeQueue.substring(startPos);
-  else cmd = routeQueue.substring(startPos, commaPos);
+  if (comma == -1) {
+    cmd = routeQueue;
+    routeQueue = "";
+  } else {
+    cmd = routeQueue.substring(0, comma);
+    routeQueue = routeQueue.substring(comma + 1);
+  }
   cmd.trim();
   cmd.toUpperCase();
-
-  routeIndex++;
-
-  // Publish remaining steps
-  if (client.connected()) {
-    String remaining = (commaPos == -1) ? "" : routeQueue.substring(commaPos + 1);
-    String info = "STEP:" + String(routeIndex) + "|CMD:" + cmd + "|REM:" + remaining;
-    client.publish("ankit/bot/nav", info.c_str());
-  }
-
   return cmd;
 }
 
 // ==========================================
 // BUZZER
 // ==========================================
-void buzzerTone(int freq, int durationMs) {
-  ledcWriteTone(kBuzzerChannel, freq);
-  buzzerOffTime = millis() + durationMs;
-}
-
-void buzzerDestinationReached() {
-  // Play a happy two-tone beep
+void buzzerPlay() {
   buzzerBeepCount = 3;
   buzzerNextBeep = millis();
 }
 
 void buzzerUpdate() {
-  // Turn off buzzer when duration expires
   if (buzzerOffTime > 0 && millis() >= buzzerOffTime) {
     ledcWriteTone(kBuzzerChannel, 0);
     buzzerOffTime = 0;
   }
-
-  // Multi-beep sequence for destination reached
   if (buzzerBeepCount > 0 && millis() >= buzzerNextBeep) {
-    buzzerTone(buzzerBeepCount == 2 ? 2500 : 2000, 150);
+    ledcWriteTone(kBuzzerChannel, buzzerBeepCount == 2 ? 2500 : 2000);
+    buzzerOffTime = millis() + 150;
     buzzerBeepCount--;
     buzzerNextBeep = millis() + 250;
-  }
-}
-
-// ==========================================
-// BATTERY MONITORING
-// ==========================================
-void readBattery() {
-  int raw = analogRead(kVoltageSensorPin);
-  float voltage = (raw / 4095.0f) * 3.3f * 5.0f;  // 5:1 voltage divider
-
-  // Exponential moving average for smoothing
-  batteryVoltage = batteryVoltage * 0.8f + voltage * 0.2f;
-
-  float percentage = constrain((batteryVoltage - kBatteryEmpty) / (kBatteryFull - kBatteryEmpty) * 100.0f, 0, 100);
-
-  // Publish battery data
-  if (client.connected()) {
-    String msg = String(batteryVoltage, 2) + "," + String((int)percentage);
-    client.publish("ankit/bot/battery", msg.c_str());
-  }
-
-  // Low battery warning (one-shot)
-  if (batteryVoltage <= kBatteryLow && !batteryLowWarned) {
-    batteryLowWarned = true;
-    buzzerTone(800, 1000);  // low tone, long beep
-    sendLog("WARNING: Battery low! " + String(batteryVoltage, 1) + "V");
-  }
-  if (batteryVoltage > kBatteryLow + 0.3f) {
-    batteryLowWarned = false;  // reset if voltage recovers
   }
 }
 
@@ -580,101 +399,84 @@ void readBattery() {
 // NETWORK & MQTT
 // ==========================================
 void setup_wifi() {
-  delay(10);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
+  Serial.print("Connecting to "); Serial.println(ssid);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  String message;
-  for (unsigned int i = 0; i < length; i++) {
-    message += (char)payload[i];
-  }
-  Serial.printf("MQTT [%s]: %s\n", topic, message.c_str());
+  String msg;
+  for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
+  String t = String(topic);
 
-  if (String(topic) == "ankit/bot/command") {
-    if (message == "START") {
+  if (t == "ankit/bot/command") {
+    if (msg == "START") {
       isRunning = true;
-      lastPidMs = millis();
-      lastError = 0.0f;
-      integral = 0.0f;
+      routeQueue = "";  // plain line following, no route
       navState = NAV_LINE_FOLLOW;
+      lastError = 0; integral = 0; lastPidMs = millis();
       nodeCooldownUntil = millis() + 500;
-      sendLog("Bot Started");
-      publishNavState("FOLLOWING");
-    } else if (message == "STOP") {
+      sendLog("Started (line follow)");
+      publishNav("FOLLOWING");
+    } else if (msg == "STOP") {
       isRunning = false;
       navState = NAV_STOPPED;
       routeQueue = "";
-      routeIndex = 0;
       stopMotors();
-      sendLog("Bot Stopped");
-      publishNavState("STOPPED");
+      sendLog("Stopped");
+      publishNav("STOPPED");
     }
-  } else if (String(topic) == "ankit/bot/pid") {
-    int c1 = message.indexOf(',');
-    int c2 = message.indexOf(',', c1 + 1);
+  }
+  else if (t == "ankit/bot/route") {
+    // Clicking a destination auto-starts the bot
+    routeQueue = msg;
+    isRunning = true;
+    navState = NAV_LINE_FOLLOW;
+    lastError = 0; integral = 0; lastPidMs = millis();
+    nodeCooldownUntil = millis() + 500;
+    sendLog("Route loaded: " + msg + " — auto-started");
+    publishNav("ROUTE_LOADED");
+  }
+  else if (t == "ankit/bot/pid") {
+    int c1 = msg.indexOf(','); int c2 = msg.indexOf(',', c1+1);
     if (c1 > 0 && c2 > 0) {
-      Kp = message.substring(0, c1).toFloat();
-      Ki = message.substring(c1 + 1, c2).toFloat();
-      Kd = message.substring(c2 + 1).toFloat();
-      sendLog("PID: Kp=" + String(Kp) + " Ki=" + String(Ki) + " Kd=" + String(Kd));
+      Kp = msg.substring(0, c1).toFloat();
+      Ki = msg.substring(c1+1, c2).toFloat();
+      Kd = msg.substring(c2+1).toFloat();
+      sendLog("PID: " + String(Kp) + "," + String(Ki) + "," + String(Kd));
     }
-  } else if (String(topic) == "ankit/bot/speeds") {
-    baseSpeed = message.toInt();
+  }
+  else if (t == "ankit/bot/speeds") {
+    baseSpeed = msg.toInt();
     turnSpeed = baseSpeed;
     sendLog("Speed: " + String(baseSpeed));
-  } else if (String(topic) == "ankit/bot/route") {
-    routeQueue = message;
-    routeIndex = 0;
-    navState = NAV_LINE_FOLLOW;
-    nodeCooldownUntil = millis() + 500;
-    sendLog("Route: " + routeQueue);
-    publishNavState("ROUTE_LOADED");
-  } else if (String(topic) == "ankit/bot/mode") {
-    driveMode = message;
+  }
+  else if (t == "ankit/bot/mode") {
+    driveMode = msg;
     sendLog("Mode: " + driveMode);
-    if (driveMode == "line") {
-      lastPidMs = millis();
-      lastError = 0.0f;
-      integral = 0.0f;
-    }
-  } else if (String(topic) == "ankit/bot/manual") {
+  }
+  else if (t == "ankit/bot/manual") {
     if (driveMode == "manual" && isRunning) {
-      if (message == "FWD")        setMotors(baseSpeed, baseSpeed);
-      else if (message == "BWD")   setMotors(-baseSpeed, -baseSpeed);
-      else if (message == "LEFT")  setMotors(-baseSpeed, baseSpeed);
-      else if (message == "RIGHT") setMotors(baseSpeed, -baseSpeed);
-      else if (message == "STOP")  stopMotors();
+      if (msg == "FWD")        setMotors(baseSpeed, baseSpeed);
+      else if (msg == "BWD")   setMotors(-baseSpeed, -baseSpeed);
+      else if (msg == "LEFT")  setMotors(-baseSpeed, baseSpeed);
+      else if (msg == "RIGHT") setMotors(baseSpeed, -baseSpeed);
+      else if (msg == "STOP")  stopMotors();
     }
   }
 }
 
 void sendLog(String msg) {
   Serial.println(msg);
-  if (client.connected()) {
-    client.publish("ankit/bot/logs", msg.c_str());
-  }
+  if (client.connected()) client.publish("ankit/bot/logs", msg.c_str());
 }
 
-void publishNavState(String state) {
-  if (client.connected()) {
-    client.publish("ankit/bot/nav", state.c_str());
-  }
+void publishNav(String s) {
+  if (client.connected()) client.publish("ankit/bot/nav", s.c_str());
 }
 
 void reconnect() {
-  // NON-BLOCKING: try once and return immediately
   Serial.print("MQTT connecting...");
   if (client.connect("ESP32BotClient")) {
     Serial.println("connected");
@@ -685,9 +487,6 @@ void reconnect() {
     client.subscribe("ankit/bot/manual");
     client.subscribe("ankit/bot/route");
   } else {
-    Serial.print("failed, rc=");
-    Serial.print(client.state());
-    Serial.println(" will retry in 3s");
-    // No delay! Returns immediately so line following keeps working
+    Serial.println("failed, rc=" + String(client.state()) + " retry in 3s");
   }
 }

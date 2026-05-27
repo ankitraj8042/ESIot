@@ -147,6 +147,7 @@ body {
 .dest-btn:active { transform: scale(0.97); background: rgba(168,85,247,0.2); }
 .dest-icon { font-size: 1rem; }
 .dest-name { flex: 1; }
+.dest-route { font-size: 0.6rem; color: var(--muted); font-family: monospace; }
 
 /* Motors */
 .motor-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.75rem; color: var(--muted); font-weight: 600; }
