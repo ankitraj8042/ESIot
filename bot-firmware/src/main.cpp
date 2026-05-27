@@ -48,7 +48,7 @@ const unsigned long kNodeCooldownMs = 800;  // ignore nodes after a maneuver
 // ==========================================
 // STATE
 // ==========================================
-enum NavState { NAV_FOLLOW, NAV_NODE, NAV_TURN, NAV_SEEK, NAV_CROSS, NAV_STOP };
+enum NavState { NAV_FOLLOW, NAV_NODE, NAV_TURN, NAV_CROSS, NAV_STOP };
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -347,37 +347,16 @@ void loop() {
     }
 
     case NAV_TURN: {
-      // Phase 1: Spin FAST to get past the T-junction bar (300ms)
+      // Spin in place for kTurnTimeMs, then PID takes over
       if (turnDir > 0) setMotors(-turnSpeed, turnSpeed);   // left turn
       else              setMotors(turnSpeed, -turnSpeed);   // right turn
 
-      if (millis() - turnStartMs >= 300) {
-        navState = NAV_SEEK;
-        sendLog("Seeking line...");
-      }
-      break;
-    }
-
-    case NAV_SEEK: {
-      // Phase 2: Keep spinning until center sensor finds the new line
-      if (turnDir > 0) setMotors(-turnSpeed, turnSpeed);
-      else              setMotors(turnSpeed, -turnSpeed);
-
-      int b[5]; int cnt, ws;
-      readSensors(b, cnt, ws);
-
-      if (b[2]) {  // Center sensor found the line!
+      if (millis() - turnStartMs >= kTurnTimeMs) {
         stopMotors(); delay(30);
         lastError = 0; integral = 0; lastPidMs = millis();
         nodeCooldownUntil = millis() + kNodeCooldownMs;
         navState = NAV_FOLLOW;
-        sendLog("Line found! Following."); publishNav("FOLLOWING");
-      }
-
-      // Safety timeout: 2 seconds max
-      if (millis() - turnStartMs > 2000) {
-        stopMotors(); isRunning = false; navState = NAV_STOP;
-        sendLog("TIMEOUT - line not found"); publishNav("STOPPED");
+        sendLog("Turn done, PID following"); publishNav("FOLLOWING");
       }
       break;
     }
