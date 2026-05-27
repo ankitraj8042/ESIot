@@ -41,7 +41,7 @@ int baseSpeed = 95;
 const int turnSpeed = 160;  // motor PWM during turns (both nav and manual)
 
 // Navigation timing (tune these on your track)
-const unsigned long kTurnTimeMs     = 500;  // spin duration for ~90° turn
+const unsigned long kTurnTimeMs     = 700;  // pivot turn duration (one wheel)
 const unsigned long kCrossingTimeMs = 350;  // drive straight past a node
 const unsigned long kNodeCooldownMs = 800;  // ignore nodes after a maneuver
 
@@ -347,13 +347,16 @@ void loop() {
     }
 
     case NAV_TURN: {
-      // Spin in place for kTurnTimeMs, then PID takes over
-      if (turnDir > 0) setMotors(-turnSpeed, turnSpeed);   // left turn
-      else              setMotors(turnSpeed, -turnSpeed);   // right turn
+      // Pivot turn: one wheel forward, one stopped
+      // (avoids right motor backward which doesn't work)
+      if (turnDir > 0) setMotors(0, turnSpeed);        // LEFT: right forward, left stopped
+      else              setMotors(turnSpeed, 0);        // RIGHT: left forward, right stopped
 
       if (millis() - turnStartMs >= kTurnTimeMs) {
         stopMotors(); delay(30);
-        lastError = 0; integral = 0; lastPidMs = millis();
+        // Bias PID toward turn direction so it searches for the line
+        lastError = (turnDir > 0) ? -2.0f : 2.0f;
+        integral = 0; lastPidMs = millis();
         nodeCooldownUntil = millis() + kNodeCooldownMs;
         navState = NAV_FOLLOW;
         sendLog("Turn done, PID following"); publishNav("FOLLOWING");
