@@ -4,13 +4,11 @@ import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gaug
 import './App.css';
 
 // ============================================
-// DESTINATIONS: 2 turns + stop for each
-// Edit routes to match your track layout
+// DESTINATIONS: turn at T-junction, stop at next T
 // ============================================
 const DESTINATIONS = [
-  { id: 'or',      name: 'Operating Room', icon: '🏥', route: 'L,R,X' },
-  { id: 'med',     name: 'Med Room',       icon: '💊', route: 'R,L,X' },
-  { id: 'station', name: 'Bot Station',    icon: '🏠', route: 'S,L,X' },
+  { id: 'ward1', name: 'Ward 1', icon: '🏥', route: 'L,X' },
+  { id: 'ward2', name: 'Ward 2', icon: '💊', route: 'R,X' },
 ];
 
 const Slider = memo(({ label, value, onChange, min, max, step, orange }) => {
