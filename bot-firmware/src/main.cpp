@@ -145,8 +145,8 @@ void followLine() {
   float correction = Kp * error + Ki * integral + Kd * derivative;
   lastError = error;
 
-  int L = constrain(baseSpeed + (int)correction, 0, 190);
-  int R = constrain(baseSpeed - (int)correction, 0, 190);
+  int L = constrain(baseSpeed + (int)correction, -baseSpeed, 190);
+  int R = constrain(baseSpeed - (int)correction, -baseSpeed, 190);
   setMotors(L, R);
 }
 
