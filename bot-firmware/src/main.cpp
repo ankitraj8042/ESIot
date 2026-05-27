@@ -25,7 +25,6 @@ const int rightMotorPin2   = 19;
 // PWM channels
 #define LEFT_CHANNEL   0
 #define RIGHT_CHANNEL  1
-#define BUZZER_CHANNEL 4
 #define PWM_FREQ       1000
 #define PWM_RESOLUTION 8
 
@@ -33,8 +32,6 @@ const int rightMotorPin2   = 19;
 const int irPins[5] = {32, 35, 34, 39, 36};
 const int weights[5] = {-2, -1, 0, 1, 2};
 
-// Buzzer
-const int kBuzzerPin = 13;
 
 // ==========================================
 // TUNING
@@ -82,10 +79,6 @@ int turnDirection = 0;            // +1 = left, -1 = right
 unsigned long turnStartMs = 0;
 unsigned long crossingStartMs = 0;
 
-// Buzzer
-unsigned long buzzerOffTime = 0;
-int buzzerBeepCount = 0;
-unsigned long buzzerNextBeep = 0;
 
 // ==========================================
 // PROTOTYPES
@@ -100,8 +93,6 @@ void readSensors(int bits[5], int &cnt, int &wsum);
 void sendLog(String msg);
 void publishNav(String s);
 String popRouteCmd();
-void buzzerPlay();
-void buzzerUpdate();
 
 // ==========================================
 // SETUP
@@ -124,10 +115,6 @@ void setup() {
   // IR sensors
   for (int i = 0; i < 5; i++) pinMode(irPins[i], INPUT);
 
-  // Buzzer
-  ledcSetup(BUZZER_CHANNEL, 2000, 8);
-  ledcAttachPin(kBuzzerPin, BUZZER_CHANNEL);
-  ledcWrite(BUZZER_CHANNEL, 0);
 
   stopMotors();
 
@@ -170,7 +157,6 @@ void loop() {
   }
   client.loop();
 
-  buzzerUpdate();
 
   // Heartbeat
   static unsigned long lastAlive = 0;
@@ -217,7 +203,6 @@ void loop() {
         stopMotors();
         isRunning = false;
         navState = NAV_STOPPED;
-        buzzerPlay();
         sendLog("Destination reached!");
         publishNav("DESTINATION_REACHED");
         break;
@@ -381,18 +366,6 @@ String popRouteCmd() {
   return cmd;
 }
 
-// ==========================================
-// BUZZER
-// ==========================================
-void buzzerPlay() { buzzerBeepCount = 3; buzzerNextBeep = millis(); }
-
-void buzzerUpdate() {
-  if (buzzerOffTime > 0 && millis() >= buzzerOffTime) { ledcWriteTone(BUZZER_CHANNEL, 0); buzzerOffTime = 0; }
-  if (buzzerBeepCount > 0 && millis() >= buzzerNextBeep) {
-    ledcWriteTone(BUZZER_CHANNEL, buzzerBeepCount == 2 ? 2500 : 2000);
-    buzzerOffTime = millis() + 150; buzzerBeepCount--; buzzerNextBeep = millis() + 250;
-  }
-}
 
 // ==========================================
 // NETWORK & MQTT
