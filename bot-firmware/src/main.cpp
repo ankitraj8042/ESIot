@@ -80,8 +80,9 @@ void motorLeft(int spd) {
 }
 
 void motorRight(int spd) {
-  if (spd > 0)      { digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); }
-  else if (spd < 0) { digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); }
+  // Direction inverted to match physical wheel direction
+  if (spd > 0)      { digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); }
+  else if (spd < 0) { digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); }
   else               { digitalWrite(IN3, LOW);  digitalWrite(IN4, LOW); }
   ledcWrite(RIGHT_PWM_CH, abs(spd));
 }
