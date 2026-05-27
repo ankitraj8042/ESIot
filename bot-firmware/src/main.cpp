@@ -50,7 +50,7 @@ float Kd = 30.0f;
 
 int baseSpeed = 95;
 const int kMaxSpeed = 190;
-int turnSpeed = 95;
+const int turnSpeed = 120;  // fixed turn speed — enough torque to spin in place
 
 // Navigation constants
 const unsigned long kNodeCooldownMs = 800;
@@ -449,7 +449,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   else if (t == "ankit/bot/speeds") {
     baseSpeed = msg.toInt();
-    turnSpeed = baseSpeed;
     sendLog("Speed: " + String(baseSpeed));
   }
   else if (t == "ankit/bot/mode") {
