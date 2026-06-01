@@ -98,7 +98,7 @@ void servoWrite(int angle) {
 // ==========================================
 // ULTRASONIC DISTANCE MEASUREMENT
 // ==========================================
-long measureDistance() {
+long measureRawDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIG_PIN, HIGH);
@@ -108,6 +108,19 @@ long measureDistance() {
   long duration = pulseIn(ECHO_PIN, HIGH, 25000); // ~4m max range
   if (duration == 0) return 999;                   // no echo = far away
   return duration * 0.034 / 2;                     // µs → cm
+}
+
+long measureDistance() {
+  // Take 3 readings to filter out noise/fluctuations (median filter)
+  long d1 = measureRawDistance(); delay(5);
+  long d2 = measureRawDistance(); delay(5);
+  long d3 = measureRawDistance();
+
+  // Simple sort to find median
+  if (d1 > d2) { long t = d1; d1 = d2; d2 = t; }
+  if (d2 > d3) { long t = d2; d2 = d3; d3 = t; }
+  if (d1 > d2) { long t = d1; d1 = d2; d2 = t; }
+  return d2; // median value
 }
 
 // ==========================================
@@ -207,20 +220,23 @@ void publishNav(String s) {
 // OBSTACLE DETECTION & SCANNING
 // ==========================================
 void servoScan() {
-  // Quick 3-position scan (bot is stopped, so blocking is fine)
-  servoWrite(30);   // look left
-  delay(300);
+  // Smooth scan (like the radar reference code)
+  sendLog("Scanning environment...");
+  
+  // Sweep Left
+  for(int i = 90; i >= 30; i -= 2) { servoWrite(i); delay(15); }
+  delay(100);
   long leftDist = measureDistance();
 
-  servoWrite(90);   // look center
-  delay(300);
-  long centerDist = measureDistance();
-
-  servoWrite(150);  // look right
-  delay(300);
+  // Sweep Right
+  for(int i = 30; i <= 150; i += 2) { servoWrite(i); delay(15); }
+  delay(100);
   long rightDist = measureDistance();
 
-  servoWrite(90);   // return to center
+  // Return Center
+  for(int i = 150; i >= 90; i -= 2) { servoWrite(i); delay(15); }
+  delay(100);
+  long centerDist = measureDistance();
 
   // Publish scan: "left,center,right"
   if (client.connected()) {
@@ -232,30 +248,39 @@ void servoScan() {
 
 void checkObstacle() {
   static unsigned long lastCheck = 0;
-  if (millis() - lastCheck < 100) return;  // check every 100ms
+  static unsigned long lastPub = 0;
+  static int detectCount = 0;
+
+  if (millis() - lastCheck < 150) return;  // check every 150ms
   lastCheck = millis();
 
   long dist = measureDistance();
 
-  // Publish distance
-  if (client.connected()) {
+  // Publish distance to dashboard (slower to stop crazy fluctuations)
+  if (millis() - lastPub > 400 && client.connected()) {
     client.publish("ankit/bot/obstacle", String(dist).c_str());
+    lastPub = millis();
   }
 
   if (!obstacleDetected && dist > 0 && dist < kObstacleThreshold) {
-    // Obstacle appeared!
-    obstacleDetected = true;
-    stopMotors();
-    sendLog("OBSTACLE at " + String(dist) + "cm!");
-    publishNav("OBSTACLE");
-    servoScan();  // scan the area once
+    detectCount++;
+    if (detectCount >= 2) {  // Require 2 consecutive readings to confirm obstacle (no false stops)
+      obstacleDetected = true;
+      stopMotors();
+      sendLog("OBSTACLE at " + String(dist) + "cm!");
+      publishNav("OBSTACLE");
+      servoScan();  // scan the area
+    }
   }
   else if (obstacleDetected && dist >= kClearThreshold) {
     // Path is clear again
     obstacleDetected = false;
+    detectCount = 0;
     lastPidMs = millis();  // reset PID timing to avoid spike
     sendLog("Path clear — resuming");
     publishNav("FOLLOWING");
+  } else {
+    detectCount = 0; // reset if reading is good
   }
 }
 
