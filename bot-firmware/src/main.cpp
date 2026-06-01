@@ -164,13 +164,6 @@ void followLine() {
   int bits[5]; int cnt, wsum;
   readSensors(bits, cnt, wsum);
 
-  static unsigned long lastSens = 0;
-  if (now - lastSens > 200 && client.connected()) {
-    String s = String(bits[0])+","+String(bits[1])+","+String(bits[2])+","+String(bits[3])+","+String(bits[4]);
-    client.publish("ankit/bot/sensors", s.c_str());
-    lastSens = now;
-  }
-
   float error = lastError;
   if (cnt > 0) error = (float)wsum / cnt;
 
@@ -423,11 +416,22 @@ void loop() {
     lastAlive = millis();
   }
 
+  // === OBSTACLE CHECK (runs continuously) ===
+  checkObstacle();
+
+  // === READ SENSORS (runs continuously for dashboard) ===
+  int bits[5]; int cnt, ws;
+  readSensors(bits, cnt, ws);
+  static unsigned long lastSens = 0;
+  if (millis() - lastSens > 200 && client.connected()) {
+    String s = String(bits[0])+","+String(bits[1])+","+String(bits[2])+","+String(bits[3])+","+String(bits[4]);
+    client.publish("ankit/bot/sensors", s.c_str());
+    lastSens = millis();
+  }
+
   if (!isRunning) { stopMotors(); return; }
   if (driveMode == "manual") return;
 
-  // === OBSTACLE CHECK (runs before state machine) ===
-  checkObstacle();
   if (obstacleDetected) {
     stopMotors();
     return;  // freeze everything while obstacle is in the way
