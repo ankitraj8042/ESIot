@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import mqtt from 'mqtt';
-import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation, AlertTriangle, Radar } from 'lucide-react';
+import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation, Radar } from 'lucide-react';
 import './App.css';
 
-// ============================================
-// DESTINATIONS: turn at T-junction, stop at next T
-// ============================================
 const DESTINATIONS = [
   { id: 'ward1', name: 'Ward 1', icon: '🏥', route: 'L,X' },
   { id: 'ward2', name: 'Ward 2', icon: '💊', route: 'R,X' },
@@ -30,6 +27,152 @@ const Slider = memo(({ label, value, onChange, min, max, step, orange }) => {
   );
 });
 
+// ============================================
+// RADAR CANVAS COMPONENT
+// ============================================
+const RadarDisplay = memo(({ radarData, obstacleDist }) => {
+  const canvasRef = useRef(null);
+  const MAX_DIST = 40; // cm max range on radar
+
+  const drawRadar = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear canvas
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h - 8;
+    const maxR = h - 20;
+
+    // Draw concentric arcs (distance rings)
+    ctx.strokeStyle = 'rgba(98, 245, 31, 0.2)';
+    ctx.lineWidth = 1;
+    for (let d = 10; d <= MAX_DIST; d += 10) {
+      const r = (d / MAX_DIST) * maxR;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, Math.PI, 0);
+      ctx.stroke();
+    }
+
+    // Base line
+    ctx.strokeStyle = 'rgba(98, 245, 31, 0.3)';
+    ctx.beginPath();
+    ctx.moveTo(cx - maxR - 5, cy);
+    ctx.lineTo(cx + maxR + 5, cy);
+    ctx.stroke();
+
+    // Draw angle lines
+    for (let a = 30; a <= 150; a += 30) {
+      const rad = (a * Math.PI) / 180;
+      ctx.strokeStyle = 'rgba(98, 245, 31, 0.15)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + maxR * Math.cos(Math.PI - rad), cy - maxR * Math.sin(rad));
+      ctx.stroke();
+    }
+
+    // Distance labels
+    ctx.fillStyle = 'rgba(98, 245, 31, 0.5)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    for (let d = 10; d <= MAX_DIST; d += 10) {
+      const r = (d / MAX_DIST) * maxR;
+      ctx.fillText(`${d}`, cx + r - 5, cy + 10);
+    }
+
+    // Angle labels
+    ctx.textAlign = 'center';
+    ctx.font = '8px monospace';
+    for (let a = 30; a <= 150; a += 30) {
+      const rad = (a * Math.PI) / 180;
+      const lr = maxR + 14;
+      ctx.fillText(`${a}°`, cx + lr * Math.cos(Math.PI - rad), cy - lr * Math.sin(rad) + 3);
+    }
+
+    if (radarData.length === 0) {
+      // No data yet — show "press scan" text
+      ctx.fillStyle = 'rgba(98, 245, 31, 0.3)';
+      ctx.font = '12px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Press SCAN to sweep', cx, cy - maxR / 2);
+      return;
+    }
+
+    // Draw detected objects (red lines from object to edge)
+    radarData.forEach(({ angle, distance }) => {
+      if (distance > 0 && distance < MAX_DIST) {
+        const rad = (angle * Math.PI) / 180;
+        const r = (distance / MAX_DIST) * maxR;
+        const objX = cx + r * Math.cos(Math.PI - rad);
+        const objY = cy - r * Math.sin(rad);
+        const edgeX = cx + maxR * Math.cos(Math.PI - rad);
+        const edgeY = cy - maxR * Math.sin(rad);
+
+        // Red line from object to edge
+        ctx.strokeStyle = 'rgba(255, 10, 10, 0.6)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(objX, objY);
+        ctx.lineTo(edgeX, edgeY);
+        ctx.stroke();
+      }
+    });
+
+    // Draw green sweep area (clear path)
+    radarData.forEach(({ angle, distance }) => {
+      if (distance >= MAX_DIST || distance <= 0) {
+        const rad = (angle * Math.PI) / 180;
+        const endX = cx + maxR * Math.cos(Math.PI - rad);
+        const endY = cy - maxR * Math.sin(rad);
+        ctx.strokeStyle = 'rgba(30, 250, 60, 0.12)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+      }
+    });
+
+    // Sweep line (last data point)
+    const last = radarData[radarData.length - 1];
+    if (last) {
+      const rad = (last.angle * Math.PI) / 180;
+      ctx.strokeStyle = 'rgba(30, 250, 60, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + maxR * Math.cos(Math.PI - rad), cy - maxR * Math.sin(rad));
+      ctx.stroke();
+    }
+
+  }, [radarData]);
+
+  useEffect(() => { drawRadar(); }, [drawRadar]);
+
+  // Color based on live distance
+  const distColor = obstacleDist < 15 ? 'red' : obstacleDist < 25 ? 'orange' : 'green';
+
+  return (
+    <div className="radar-wrapper">
+      <canvas ref={canvasRef} width={420} height={220} className="radar-canvas" />
+      <div className="radar-footer">
+        <div className="dist-live">
+          <span className={`dist-value ${distColor}`}>{obstacleDist >= 999 ? '—' : obstacleDist}</span>
+          <span className="dist-unit">cm ahead</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ============================================
+// MAIN APP
+// ============================================
 const App = () => {
   const [client, setClient] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -48,9 +191,10 @@ const App = () => {
   const [logs, setLogs] = useState([]);
   const [navStatus, setNavStatus] = useState('IDLE');
   const [obstacleDist, setObstacleDist] = useState(999);
-  const [scanData, setScanData] = useState(null);
+  const [radarData, setRadarData] = useState([]);
   const logsEndRef = useRef(null);
   const lastHeartbeat = useRef(0);
+  const radarBatchRef = useRef([]);
 
   // Heartbeat checker
   useEffect(() => {
@@ -65,7 +209,7 @@ const App = () => {
     const mc = mqtt.connect('ws://192.168.137.1:8883');
     mc.on('connect', () => {
       setIsConnected(true);
-      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive', 'obstacle', 'scan'].forEach(t => mc.subscribe('ankit/bot/' + t));
+      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive', 'obstacle', 'radar'].forEach(t => mc.subscribe('ankit/bot/' + t));
     });
     mc.on('close', () => { setIsConnected(false); setIsBotLive(false); });
     mc.on('message', (topic, msg) => {
@@ -74,14 +218,24 @@ const App = () => {
       setIsBotLive(true);
 
       if (topic.endsWith('/status')) setBotStatus(m);
-      else if (topic.endsWith('/logs')) setLogs(p => [...p, `[${new Date().toLocaleTimeString()}] ${m}`].slice(-20));
+      else if (topic.endsWith('/logs')) setLogs(p => [...p, `[${new Date().toLocaleTimeString()}] ${m}`].slice(-30));
       else if (topic.endsWith('/telemetry')) { const [l, r] = m.split(','); setLeftMotor(+l); setRightMotor(+r); }
       else if (topic.endsWith('/sensors')) setSensors(m.split(',').map(Number));
       else if (topic.endsWith('/nav')) setNavStatus(m);
       else if (topic.endsWith('/obstacle')) setObstacleDist(parseInt(m) || 999);
-      else if (topic.endsWith('/scan')) {
-        const [l, c, r] = m.split(',').map(Number);
-        setScanData({ l, c, r });
+      else if (topic.endsWith('/radar')) {
+        const [a, d] = m.split(',').map(Number);
+        if (!isNaN(a) && !isNaN(d)) {
+          // If angle is near start (15°), it's a new sweep — clear old data
+          if (a <= 17 && radarBatchRef.current.length > 10) {
+            radarBatchRef.current = [];
+          }
+          radarBatchRef.current.push({ angle: a, distance: d });
+          // Batch updates: update React state every 5 points to avoid excessive re-renders
+          if (radarBatchRef.current.length % 5 === 0 || a >= 163 || a <= 17) {
+            setRadarData([...radarBatchRef.current]);
+          }
+        }
       }
     });
     setClient(mc);
@@ -91,25 +245,20 @@ const App = () => {
   // Actions
   const pub = (t, m) => { if (client && isConnected) client.publish('ankit/bot/' + t, m); };
   const updatePID = (p, i, d) => { setKp(p); setKi(i); setKd(d); pub('pid', `${p},${i},${d}`); };
-  const sendCommand = cmd => { pub('command', cmd); setBotStatus(cmd === 'START' ? 'Moving' : 'Idle'); };
+  const sendCommand = cmd => { pub('command', cmd); if (cmd === 'START') setBotStatus('Moving'); else if (cmd === 'STOP') setBotStatus('Idle'); };
   const changeMode = m => { setDriveMode(m); pub('mode', m); };
   const manualDrive = dir => { if (botStatus === 'Moving') pub('manual', dir); };
-
-  // Navigate: sends route → firmware auto-starts
-  const navigate = route => {
-    pub('route', route);
-    setBotStatus('Moving');
-  };
+  const navigate = route => { pub('route', route); setBotStatus('Moving'); };
+  const triggerScan = () => { pub('command', 'SCAN'); };
 
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
 
-  // Obstacle helpers
   const isBlocked = navStatus === 'OBSTACLE';
-  const distColor = obstacleDist < 15 ? 'red' : obstacleDist < 25 ? 'orange' : 'green';
-  const distPct = Math.max(0, Math.min(100, (1 - obstacleDist / 100) * 100));
+  const isScanning = navStatus === 'SCANNING';
 
   // Nav badge
   const navBadge = (() => {
+    if (navStatus.includes('SCANNING'))            return { text: '📡 Scanning...', cls: 'nav-scanning' };
     if (navStatus.includes('OBSTACLE'))            return { text: '⚠️ Obstacle!', cls: 'nav-obstacle' };
     if (navStatus.includes('TURNING_LEFT'))        return { text: '↰ Turning Left', cls: 'nav-turning' };
     if (navStatus.includes('TURNING_RIGHT'))       return { text: '↱ Turning Right', cls: 'nav-turning' };
@@ -196,31 +345,19 @@ const App = () => {
             </div>
           </div>
 
-          {/* Column 3 */}
+          {/* Column 3: Radar + Motors + Logs */}
           <div className="col">
-            <div className={`card obstacle-card ${isBlocked ? 'blocked' : ''}`}>
-              <div className="card-head sm"><Radar size={12} className={`text-${distColor}`} /><h3>Obstacle Sensor</h3></div>
-              <div className="obstacle-body">
-                <div className="dist-display">
-                  <span className={`dist-value ${distColor}`}>{obstacleDist >= 999 ? '—' : obstacleDist}</span>
-                  <span className="dist-unit">cm</span>
-                </div>
-                <div className="dist-bar-bg">
-                  <div className={`dist-bar-fill ${distColor}`} style={{ width: `${distPct}%` }}></div>
-                </div>
-                {isBlocked && (
-                  <div className="obstacle-alert">
-                    <AlertTriangle size={14} /> Obstacle detected — waiting...
-                  </div>
-                )}
-                {scanData && (
-                  <div className="scan-row">
-                    <div className="scan-dir"><span className="scan-label">L</span><span className="scan-val">{scanData.l}cm</span></div>
-                    <div className="scan-dir"><span className="scan-label">C</span><span className="scan-val">{scanData.c}cm</span></div>
-                    <div className="scan-dir"><span className="scan-label">R</span><span className="scan-val">{scanData.r}cm</span></div>
-                  </div>
-                )}
+            <div className={`card radar-card ${isBlocked ? 'blocked' : ''}`}>
+              <div className="card-head sm">
+                <Radar size={12} className="text-green" /><h3>Radar</h3>
+                <button className={`scan-btn ${isScanning ? 'scanning' : ''}`} onClick={triggerScan} disabled={isScanning}>
+                  {isScanning ? '⟳ Scanning...' : '📡 Scan'}
+                </button>
               </div>
+              <RadarDisplay radarData={radarData} obstacleDist={obstacleDist} />
+              {isBlocked && (
+                <div className="obstacle-alert">⚠️ Obstacle detected — waiting for clear path...</div>
+              )}
             </div>
 
             <div className="card">

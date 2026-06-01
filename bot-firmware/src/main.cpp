@@ -55,7 +55,7 @@ const unsigned long kCrossingTimeMs = 350;
 const unsigned long kNodeCooldownMs = 800;
 
 // Obstacle detection
-const int kObstacleThreshold = 20;   // cm — stop if closer
+const int kObstacleThreshold = 15;   // cm — stop if closer
 const int kClearThreshold    = 25;   // cm — resume when farther
 
 // ==========================================
@@ -84,13 +84,12 @@ unsigned long crossStartMs = 0;
 
 // Obstacle state
 bool obstacleDetected = false;
+int obstacleConsecutive = 0;
 
 // ==========================================
 // SERVO CONTROL (raw LEDC — no extra library)
 // ==========================================
 void servoWrite(int angle) {
-  // SG90 at 50Hz, 10-bit (1024 steps)
-  // 0° ≈ 26 duty,  180° ≈ 128 duty
   int duty = map(constrain(angle, 0, 180), 0, 180, 26, 128);
   ledcWrite(SERVO_CH, duty);
 }
@@ -98,29 +97,16 @@ void servoWrite(int angle) {
 // ==========================================
 // ULTRASONIC DISTANCE MEASUREMENT
 // ==========================================
-long measureRawDistance() {
+long measureDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  long duration = pulseIn(ECHO_PIN, HIGH, 25000); // ~4m max range
-  if (duration == 0) return 999;                   // no echo = far away
-  return duration * 0.034 / 2;                     // µs → cm
-}
-
-long measureDistance() {
-  // Take 3 readings to filter out noise/fluctuations (median filter)
-  long d1 = measureRawDistance(); delay(5);
-  long d2 = measureRawDistance(); delay(5);
-  long d3 = measureRawDistance();
-
-  // Simple sort to find median
-  if (d1 > d2) { long t = d1; d1 = d2; d2 = t; }
-  if (d2 > d3) { long t = d2; d2 = d3; d3 = t; }
-  if (d1 > d2) { long t = d1; d1 = d2; d2 = t; }
-  return d2; // median value
+  long duration = pulseIn(ECHO_PIN, HIGH, 25000);
+  if (duration == 0) return 999;
+  return duration * 0.034 / 2;
 }
 
 // ==========================================
@@ -134,7 +120,6 @@ void motorLeft(int spd) {
 }
 
 void motorRight(int spd) {
-  // Direction inverted to match physical wheel direction
   if (spd > 0)      { digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); }
   else if (spd < 0) { digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); }
   else               { digitalWrite(IN3, LOW);  digitalWrite(IN4, LOW); }
@@ -217,70 +202,72 @@ void publishNav(String s) {
 }
 
 // ==========================================
-// OBSTACLE DETECTION & SCANNING
+// RADAR SWEEP (publishes angle,distance pairs)
 // ==========================================
-void servoScan() {
-  // Smooth scan (like the radar reference code)
-  sendLog("Scanning environment...");
-  
-  // Sweep Left
-  for(int i = 90; i >= 30; i -= 2) { servoWrite(i); delay(15); }
-  delay(100);
-  long leftDist = measureDistance();
+void radarSweep() {
+  sendLog("Radar sweep...");
+  publishNav("SCANNING");
 
-  // Sweep Right
-  for(int i = 30; i <= 150; i += 2) { servoWrite(i); delay(15); }
-  delay(100);
-  long rightDist = measureDistance();
-
-  // Return Center
-  for(int i = 150; i >= 90; i -= 2) { servoWrite(i); delay(15); }
-  delay(100);
-  long centerDist = measureDistance();
-
-  // Publish scan: "left,center,right"
-  if (client.connected()) {
-    String msg = String(leftDist) + "," + String(centerDist) + "," + String(rightDist);
-    client.publish("ankit/bot/scan", msg.c_str());
+  // Forward sweep: 15° → 165°
+  for (int i = 15; i <= 165; i += 2) {
+    servoWrite(i);
+    delay(30);
+    long dist = measureDistance();
+    if (client.connected()) {
+      client.publish("ankit/bot/radar", (String(i) + "," + String(dist)).c_str());
+    }
+    client.loop();  // keep MQTT alive during sweep
   }
-  sendLog("Scan L:" + String(leftDist) + " C:" + String(centerDist) + " R:" + String(rightDist));
+
+  // Return sweep: 165° → 15°
+  for (int i = 165; i >= 15; i -= 2) {
+    servoWrite(i);
+    delay(30);
+    long dist = measureDistance();
+    if (client.connected()) {
+      client.publish("ankit/bot/radar", (String(i) + "," + String(dist)).c_str());
+    }
+    client.loop();
+  }
+
+  servoWrite(90);
+  sendLog("Sweep complete");
 }
 
+// ==========================================
+// OBSTACLE DETECTION (lightweight, single reading)
+// ==========================================
 void checkObstacle() {
   static unsigned long lastCheck = 0;
-  static unsigned long lastPub = 0;
-  static int detectCount = 0;
-
-  if (millis() - lastCheck < 150) return;  // check every 150ms
+  if (millis() - lastCheck < 200) return;  // check every 200ms (5Hz)
   lastCheck = millis();
 
   long dist = measureDistance();
 
-  // Publish distance to dashboard (slower to stop crazy fluctuations)
-  if (millis() - lastPub > 400 && client.connected()) {
+  // Publish distance to dashboard
+  if (client.connected()) {
     client.publish("ankit/bot/obstacle", String(dist).c_str());
-    lastPub = millis();
   }
 
   if (!obstacleDetected && dist > 0 && dist < kObstacleThreshold) {
-    detectCount++;
-    if (detectCount >= 2) {  // Require 2 consecutive readings to confirm obstacle (no false stops)
+    obstacleConsecutive++;
+    if (obstacleConsecutive >= 3) {  // 3 consecutive readings to confirm (600ms)
       obstacleDetected = true;
       stopMotors();
       sendLog("OBSTACLE at " + String(dist) + "cm!");
       publishNav("OBSTACLE");
-      servoScan();  // scan the area
+      radarSweep();  // full radar scan
     }
   }
   else if (obstacleDetected && dist >= kClearThreshold) {
-    // Path is clear again
     obstacleDetected = false;
-    detectCount = 0;
-    lastPidMs = millis();  // reset PID timing to avoid spike
+    obstacleConsecutive = 0;
+    lastPidMs = millis();
     sendLog("Path clear — resuming");
     publishNav("FOLLOWING");
-  } else {
-    detectCount = 0; // reset if reading is good
+  }
+  else if (dist >= kObstacleThreshold) {
+    obstacleConsecutive = 0;  // reset counter if reading is clear
   }
 }
 
@@ -295,19 +282,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (t == "ankit/bot/command") {
     if (msg == "START") {
       isRunning = true; routeQueue = ""; navState = NAV_FOLLOW;
-      obstacleDetected = false;
+      obstacleDetected = false; obstacleConsecutive = 0;
       lastError = 0; integral = 0; lastPidMs = millis();
       nodeCooldownUntil = millis() + 500;
       sendLog("Started"); publishNav("FOLLOWING");
     } else if (msg == "STOP") {
       isRunning = false; navState = NAV_STOP; routeQueue = "";
-      obstacleDetected = false;
+      obstacleDetected = false; obstacleConsecutive = 0;
       stopMotors(); sendLog("Stopped"); publishNav("STOPPED");
+    } else if (msg == "SCAN") {
+      stopMotors();
+      radarSweep();
     }
   }
   else if (t == "ankit/bot/route") {
     routeQueue = msg; isRunning = true; navState = NAV_FOLLOW;
-    obstacleDetected = false;
+    obstacleDetected = false; obstacleConsecutive = 0;
     lastError = 0; integral = 0; lastPidMs = millis();
     nodeCooldownUntil = millis() + 500;
     sendLog("Route: " + msg); publishNav("ROUTE_LOADED");
@@ -356,7 +346,7 @@ void reconnect() {
 }
 
 // ==========================================
-// SETUP
+// SETUP (no tests — clean boot)
 // ==========================================
 void setup() {
   Serial.begin(115200);
@@ -367,8 +357,8 @@ void setup() {
   pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
 
   // Motor PWM
-  ledcSetup(LEFT_PWM_CH,  1000, 8);  // ch0, timer0
-  ledcSetup(RIGHT_PWM_CH, 1000, 8);  // ch2, timer1
+  ledcSetup(LEFT_PWM_CH,  1000, 8);
+  ledcSetup(RIGHT_PWM_CH, 1000, 8);
   ledcAttachPin(ENA, LEFT_PWM_CH);
   ledcAttachPin(ENB, RIGHT_PWM_CH);
 
@@ -379,25 +369,10 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
-  // Servo PWM (50Hz, 10-bit resolution for precise angle)
+  // Servo PWM (50Hz, 10-bit)
   ledcSetup(SERVO_CH, 50, 10);
   ledcAttachPin(SERVO_PIN, SERVO_CH);
-  servoWrite(90);  // center position
-
-  stopMotors();
-
-  // Motor self-test removed to prevent brownout resets at boot.
-
-  // === ULTRASONIC TEST ===
-  long testDist = measureDistance();
-  Serial.println("[TEST] Ultrasonic: " + String(testDist) + "cm");
-
-  // === SERVO TEST ===
-  Serial.println("[TEST] Servo sweep...");
-  servoWrite(30);  delay(400);
-  servoWrite(150); delay(400);
-  servoWrite(90);  delay(200);
-  Serial.println("[TEST] Done!");
+  servoWrite(90);
 
   stopMotors();
 
@@ -427,25 +402,26 @@ void loop() {
     lastAlive = millis();
   }
 
-  // === OBSTACLE CHECK (runs continuously) ===
-  checkObstacle();
-
-  // === READ SENSORS (runs continuously for dashboard) ===
-  int bits[5]; int cnt, ws;
-  readSensors(bits, cnt, ws);
-  static unsigned long lastSens = 0;
-  if (millis() - lastSens > 200 && client.connected()) {
-    String s = String(bits[0])+","+String(bits[1])+","+String(bits[2])+","+String(bits[3])+","+String(bits[4]);
-    client.publish("ankit/bot/sensors", s.c_str());
-    lastSens = millis();
+  // Publish IR sensors (always, for dashboard)
+  static unsigned long lastSensPub = 0;
+  if (millis() - lastSensPub > 300) {
+    int b[5]; int c, w;
+    readSensors(b, c, w);
+    if (client.connected()) {
+      String s = String(b[0])+","+String(b[1])+","+String(b[2])+","+String(b[3])+","+String(b[4]);
+      client.publish("ankit/bot/sensors", s.c_str());
+    }
+    lastSensPub = millis();
   }
 
   if (!isRunning) { stopMotors(); return; }
   if (driveMode == "manual") return;
 
+  // Obstacle check (only when actively running in line mode)
+  checkObstacle();
   if (obstacleDetected) {
     stopMotors();
-    return;  // freeze everything while obstacle is in the way
+    return;
   }
 
   // === NAVIGATION STATE MACHINE ===
@@ -453,7 +429,6 @@ void loop() {
 
     case NAV_FOLLOW: {
       followLine();
-      // Node detection (only with active route)
       if (millis() > nodeCooldownUntil && routeQueue.length() > 0) {
         int b[5]; int cnt, ws;
         readSensors(b, cnt, ws);
@@ -485,7 +460,6 @@ void loop() {
     }
 
     case NAV_TURN: {
-      // Pivot turn: one wheel forward, one stopped
       if (turnDir > 0) setMotors(0, turnSpeed);
       else              setMotors(turnSpeed, 0);
 
