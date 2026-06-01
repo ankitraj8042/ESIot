@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import mqtt from 'mqtt';
-import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation } from 'lucide-react';
+import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation, AlertTriangle, Radar } from 'lucide-react';
 import './App.css';
 
 // ============================================
@@ -47,6 +47,8 @@ const App = () => {
   const [sensors, setSensors] = useState([0, 0, 0, 0, 0]);
   const [logs, setLogs] = useState([]);
   const [navStatus, setNavStatus] = useState('IDLE');
+  const [obstacleDist, setObstacleDist] = useState(999);
+  const [scanData, setScanData] = useState(null);
   const logsEndRef = useRef(null);
   const lastHeartbeat = useRef(0);
 
@@ -63,7 +65,7 @@ const App = () => {
     const mc = mqtt.connect('ws://192.168.137.1:8883');
     mc.on('connect', () => {
       setIsConnected(true);
-      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive'].forEach(t => mc.subscribe('ankit/bot/' + t));
+      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive', 'obstacle', 'scan'].forEach(t => mc.subscribe('ankit/bot/' + t));
     });
     mc.on('close', () => { setIsConnected(false); setIsBotLive(false); });
     mc.on('message', (topic, msg) => {
@@ -76,6 +78,11 @@ const App = () => {
       else if (topic.endsWith('/telemetry')) { const [l, r] = m.split(','); setLeftMotor(+l); setRightMotor(+r); }
       else if (topic.endsWith('/sensors')) setSensors(m.split(',').map(Number));
       else if (topic.endsWith('/nav')) setNavStatus(m);
+      else if (topic.endsWith('/obstacle')) setObstacleDist(parseInt(m) || 999);
+      else if (topic.endsWith('/scan')) {
+        const [l, c, r] = m.split(',').map(Number);
+        setScanData({ l, c, r });
+      }
     });
     setClient(mc);
     return () => mc.end();
@@ -96,16 +103,22 @@ const App = () => {
 
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
 
+  // Obstacle helpers
+  const isBlocked = navStatus === 'OBSTACLE';
+  const distColor = obstacleDist < 15 ? 'red' : obstacleDist < 25 ? 'orange' : 'green';
+  const distPct = Math.max(0, Math.min(100, (1 - obstacleDist / 100) * 100));
+
   // Nav badge
   const navBadge = (() => {
-    if (navStatus.includes('TURNING_LEFT'))       return { text: '↰ Turning Left', cls: 'nav-turning' };
-    if (navStatus.includes('TURNING_RIGHT'))      return { text: '↱ Turning Right', cls: 'nav-turning' };
-    if (navStatus.includes('CROSSING'))           return { text: '⬆ Crossing', cls: 'nav-crossing' };
-    if (navStatus.includes('NODE_DETECTED'))      return { text: '📍 Node', cls: 'nav-node' };
-    if (navStatus.includes('ROUTE_LOADED'))       return { text: '📋 Route Loaded', cls: 'nav-loaded' };
-    if (navStatus.includes('DESTINATION_REACHED'))return { text: '✅ Arrived!', cls: 'nav-done' };
-    if (navStatus.includes('FOLLOWING'))          return { text: '━━ Following', cls: 'nav-follow' };
-    if (navStatus.includes('STOPPED'))            return { text: '⏹ Stopped', cls: 'nav-stopped' };
+    if (navStatus.includes('OBSTACLE'))            return { text: '⚠️ Obstacle!', cls: 'nav-obstacle' };
+    if (navStatus.includes('TURNING_LEFT'))        return { text: '↰ Turning Left', cls: 'nav-turning' };
+    if (navStatus.includes('TURNING_RIGHT'))       return { text: '↱ Turning Right', cls: 'nav-turning' };
+    if (navStatus.includes('CROSSING'))            return { text: '⬆ Crossing', cls: 'nav-crossing' };
+    if (navStatus.includes('NODE_DETECTED'))       return { text: '📍 Node', cls: 'nav-node' };
+    if (navStatus.includes('ROUTE_LOADED'))        return { text: '📋 Route Loaded', cls: 'nav-loaded' };
+    if (navStatus.includes('DESTINATION_REACHED')) return { text: '✅ Arrived!', cls: 'nav-done' };
+    if (navStatus.includes('FOLLOWING'))           return { text: '━━ Following', cls: 'nav-follow' };
+    if (navStatus.includes('STOPPED'))             return { text: '⏹ Stopped', cls: 'nav-stopped' };
     return { text: '⏸ Idle', cls: 'nav-idle' };
   })();
 
@@ -185,6 +198,31 @@ const App = () => {
 
           {/* Column 3 */}
           <div className="col">
+            <div className={`card obstacle-card ${isBlocked ? 'blocked' : ''}`}>
+              <div className="card-head sm"><Radar size={12} className={`text-${distColor}`} /><h3>Obstacle Sensor</h3></div>
+              <div className="obstacle-body">
+                <div className="dist-display">
+                  <span className={`dist-value ${distColor}`}>{obstacleDist >= 999 ? '—' : obstacleDist}</span>
+                  <span className="dist-unit">cm</span>
+                </div>
+                <div className="dist-bar-bg">
+                  <div className={`dist-bar-fill ${distColor}`} style={{ width: `${distPct}%` }}></div>
+                </div>
+                {isBlocked && (
+                  <div className="obstacle-alert">
+                    <AlertTriangle size={14} /> Obstacle detected — waiting...
+                  </div>
+                )}
+                {scanData && (
+                  <div className="scan-row">
+                    <div className="scan-dir"><span className="scan-label">L</span><span className="scan-val">{scanData.l}cm</span></div>
+                    <div className="scan-dir"><span className="scan-label">C</span><span className="scan-val">{scanData.c}cm</span></div>
+                    <div className="scan-dir"><span className="scan-label">R</span><span className="scan-val">{scanData.r}cm</span></div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="card">
               <div className="card-head sm"><Activity size={12} className="text-blue" /><h3>Motors</h3></div>
               <div className="motor-row"><span>L</span><div className="bar-bg"><div className="bar-fill blue" style={{ width: `${Math.min(Math.abs(leftMotor) / 255 * 100, 100)}%` }}></div></div><span className="mv">{leftMotor}</span></div>

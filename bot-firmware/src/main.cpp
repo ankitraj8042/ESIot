@@ -18,14 +18,23 @@ const int IN1 = 16;  // Direction pin 1
 const int IN2 = 17;  // Direction pin 2
 
 // Right motor — pins SWAPPED to fix direction
-// (GPIO18→IN3 direction is broken in hardware, this swap fixes it)
 const int ENB = 5;   // Enable (PWM speed)
-const int IN3 = 19;  // Direction pin 1 (was 18, swapped)
-const int IN4 = 18;  // Direction pin 2 (was 19, swapped)
+const int IN3 = 19;  // Direction pin 1 (swapped)
+const int IN4 = 18;  // Direction pin 2 (swapped)
 
-// PWM — use different timers to avoid conflicts
-#define LEFT_PWM_CH   0   // timer 0
-#define RIGHT_PWM_CH  2   // timer 1 (different timer group)
+// ==========================================
+// ULTRASONIC + SERVO PINS
+// ==========================================
+const int TRIG_PIN  = 25;
+const int ECHO_PIN  = 26;
+const int SERVO_PIN = 13;
+
+// ==========================================
+// PWM CHANNELS (each on a separate timer)
+// ==========================================
+#define LEFT_PWM_CH   0   // timer 0, 1kHz
+#define RIGHT_PWM_CH  2   // timer 1, 1kHz
+#define SERVO_CH      4   // timer 2, 50Hz
 
 // IR sensors (left to right): FL, ML, C, MR, FR
 const int irPins[5] = {32, 35, 34, 39, 36};
@@ -38,12 +47,16 @@ float Kp = 50.0f;
 float Ki = 0.0f;
 float Kd = 30.0f;
 int baseSpeed = 95;
-const int turnSpeed = 160;  // motor PWM during turns (both nav and manual)
+const int turnSpeed = 160;
 
-// Navigation timing (tune these on your track)
-const unsigned long kTurnTimeMs     = 700;  // pivot turn duration (one wheel)
-const unsigned long kCrossingTimeMs = 350;  // drive straight past a node
-const unsigned long kNodeCooldownMs = 800;  // ignore nodes after a maneuver
+// Navigation timing
+const unsigned long kTurnTimeMs     = 700;
+const unsigned long kCrossingTimeMs = 350;
+const unsigned long kNodeCooldownMs = 800;
+
+// Obstacle detection
+const int kObstacleThreshold = 20;   // cm — stop if closer
+const int kClearThreshold    = 25;   // cm — resume when farther
 
 // ==========================================
 // STATE
@@ -65,12 +78,40 @@ unsigned long lastPidMs = 0;
 NavState navState = NAV_FOLLOW;
 String routeQueue = "";
 unsigned long nodeCooldownUntil = 0;
-int turnDir = 0;                // +1=left, -1=right
+int turnDir = 0;
 unsigned long turnStartMs = 0;
 unsigned long crossStartMs = 0;
 
+// Obstacle state
+bool obstacleDetected = false;
+
 // ==========================================
-// MOTOR CONTROL (core functions)
+// SERVO CONTROL (raw LEDC — no extra library)
+// ==========================================
+void servoWrite(int angle) {
+  // SG90 at 50Hz, 10-bit (1024 steps)
+  // 0° ≈ 26 duty,  180° ≈ 128 duty
+  int duty = map(constrain(angle, 0, 180), 0, 180, 26, 128);
+  ledcWrite(SERVO_CH, duty);
+}
+
+// ==========================================
+// ULTRASONIC DISTANCE MEASUREMENT
+// ==========================================
+long measureDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 25000); // ~4m max range
+  if (duration == 0) return 999;                   // no echo = far away
+  return duration * 0.034 / 2;                     // µs → cm
+}
+
+// ==========================================
+// MOTOR CONTROL
 // ==========================================
 void motorLeft(int spd) {
   if (spd > 0)      { digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); }
@@ -90,8 +131,6 @@ void motorRight(int spd) {
 void setMotors(int left, int right) {
   motorLeft(left);
   motorRight(right);
-
-  // Publish telemetry at 5Hz
   static unsigned long lastTel = 0;
   if (millis() - lastTel > 200 && client.connected()) {
     client.publish("ankit/bot/telemetry", (String(left) + "," + String(right)).c_str());
@@ -125,7 +164,6 @@ void followLine() {
   int bits[5]; int cnt, wsum;
   readSensors(bits, cnt, wsum);
 
-  // Publish sensors at 5Hz
   static unsigned long lastSens = 0;
   if (now - lastSens > 200 && client.connected()) {
     String s = String(bits[0])+","+String(bits[1])+","+String(bits[2])+","+String(bits[3])+","+String(bits[4]);
@@ -173,6 +211,62 @@ void publishNav(String s) {
 }
 
 // ==========================================
+// OBSTACLE DETECTION & SCANNING
+// ==========================================
+void servoScan() {
+  // Quick 3-position scan (bot is stopped, so blocking is fine)
+  servoWrite(30);   // look left
+  delay(300);
+  long leftDist = measureDistance();
+
+  servoWrite(90);   // look center
+  delay(300);
+  long centerDist = measureDistance();
+
+  servoWrite(150);  // look right
+  delay(300);
+  long rightDist = measureDistance();
+
+  servoWrite(90);   // return to center
+
+  // Publish scan: "left,center,right"
+  if (client.connected()) {
+    String msg = String(leftDist) + "," + String(centerDist) + "," + String(rightDist);
+    client.publish("ankit/bot/scan", msg.c_str());
+  }
+  sendLog("Scan L:" + String(leftDist) + " C:" + String(centerDist) + " R:" + String(rightDist));
+}
+
+void checkObstacle() {
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck < 100) return;  // check every 100ms
+  lastCheck = millis();
+
+  long dist = measureDistance();
+
+  // Publish distance
+  if (client.connected()) {
+    client.publish("ankit/bot/obstacle", String(dist).c_str());
+  }
+
+  if (!obstacleDetected && dist > 0 && dist < kObstacleThreshold) {
+    // Obstacle appeared!
+    obstacleDetected = true;
+    stopMotors();
+    sendLog("OBSTACLE at " + String(dist) + "cm!");
+    publishNav("OBSTACLE");
+    servoScan();  // scan the area once
+  }
+  else if (obstacleDetected && dist >= kClearThreshold) {
+    // Path is clear again
+    obstacleDetected = false;
+    lastPidMs = millis();  // reset PID timing to avoid spike
+    sendLog("Path clear — resuming");
+    publishNav("FOLLOWING");
+  }
+}
+
+// ==========================================
 // MQTT CALLBACK
 // ==========================================
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -183,16 +277,19 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (t == "ankit/bot/command") {
     if (msg == "START") {
       isRunning = true; routeQueue = ""; navState = NAV_FOLLOW;
+      obstacleDetected = false;
       lastError = 0; integral = 0; lastPidMs = millis();
       nodeCooldownUntil = millis() + 500;
       sendLog("Started"); publishNav("FOLLOWING");
     } else if (msg == "STOP") {
       isRunning = false; navState = NAV_STOP; routeQueue = "";
+      obstacleDetected = false;
       stopMotors(); sendLog("Stopped"); publishNav("STOPPED");
     }
   }
   else if (t == "ankit/bot/route") {
     routeQueue = msg; isRunning = true; navState = NAV_FOLLOW;
+    obstacleDetected = false;
     lastError = 0; integral = 0; lastPidMs = millis();
     nodeCooldownUntil = millis() + 500;
     sendLog("Route: " + msg); publishNav("ROUTE_LOADED");
@@ -251,7 +348,7 @@ void setup() {
   pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
 
-  // PWM on separate timers
+  // Motor PWM
   ledcSetup(LEFT_PWM_CH,  1000, 8);  // ch0, timer0
   ledcSetup(RIGHT_PWM_CH, 1000, 8);  // ch2, timer1
   ledcAttachPin(ENA, LEFT_PWM_CH);
@@ -259,6 +356,15 @@ void setup() {
 
   // IR sensors
   for (int i = 0; i < 5; i++) pinMode(irPins[i], INPUT);
+
+  // Ultrasonic pins
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  // Servo PWM (50Hz, 10-bit resolution for precise angle)
+  ledcSetup(SERVO_CH, 50, 10);
+  ledcAttachPin(SERVO_PIN, SERVO_CH);
+  servoWrite(90);  // center position
 
   stopMotors();
 
@@ -278,7 +384,17 @@ void setup() {
   Serial.println("[TEST] Both forward...");
   setMotors(120, 120); delay(400); stopMotors(); delay(200);
 
-  Serial.println("[TEST] Done! All 4 directions should have spun.");
+  // === ULTRASONIC TEST ===
+  long testDist = measureDistance();
+  Serial.println("[TEST] Ultrasonic: " + String(testDist) + "cm");
+
+  // === SERVO TEST ===
+  Serial.println("[TEST] Servo sweep...");
+  servoWrite(30);  delay(400);
+  servoWrite(150); delay(400);
+  servoWrite(90);  delay(200);
+  Serial.println("[TEST] Done!");
+
   stopMotors();
 
   // WiFi + MQTT
@@ -309,6 +425,13 @@ void loop() {
 
   if (!isRunning) { stopMotors(); return; }
   if (driveMode == "manual") return;
+
+  // === OBSTACLE CHECK (runs before state machine) ===
+  checkObstacle();
+  if (obstacleDetected) {
+    stopMotors();
+    return;  // freeze everything while obstacle is in the way
+  }
 
   // === NAVIGATION STATE MACHINE ===
   switch (navState) {
@@ -348,13 +471,11 @@ void loop() {
 
     case NAV_TURN: {
       // Pivot turn: one wheel forward, one stopped
-      // (avoids right motor backward which doesn't work)
-      if (turnDir > 0) setMotors(0, turnSpeed);        // LEFT: right forward, left stopped
-      else              setMotors(turnSpeed, 0);        // RIGHT: left forward, right stopped
+      if (turnDir > 0) setMotors(0, turnSpeed);
+      else              setMotors(turnSpeed, 0);
 
       if (millis() - turnStartMs >= kTurnTimeMs) {
         stopMotors(); delay(30);
-        // Bias PID toward turn direction so it searches for the line
         lastError = (turnDir > 0) ? -2.0f : 2.0f;
         integral = 0; lastPidMs = millis();
         nodeCooldownUntil = millis() + kNodeCooldownMs;
