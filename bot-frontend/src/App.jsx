@@ -194,12 +194,13 @@ const App = () => {
   const [radarData, setRadarData] = useState([]);
   const logsEndRef = useRef(null);
   const lastHeartbeat = useRef(0);
-  const radarBatchRef = useRef([]);
 
-  // Heartbeat checker
   useEffect(() => {
     const id = setInterval(() => {
-      if (lastHeartbeat.current > 0 && Date.now() - lastHeartbeat.current > 1500) setIsBotLive(false);
+      if (lastHeartbeat.current > 0 && Date.now() - lastHeartbeat.current > 1500) {
+        setIsBotLive(false);
+        setNavStatus('IDLE'); // Reset nav status when bot disconnects
+      }
     }, 1000);
     return () => clearInterval(id);
   }, []);
@@ -224,18 +225,12 @@ const App = () => {
       else if (topic.endsWith('/nav')) setNavStatus(m);
       else if (topic.endsWith('/obstacle')) setObstacleDist(parseInt(m) || 999);
       else if (topic.endsWith('/radar')) {
-        const [a, d] = m.split(',').map(Number);
-        if (!isNaN(a) && !isNaN(d)) {
-          // If angle is near start (15°), it's a new sweep — clear old data
-          if (a <= 17 && radarBatchRef.current.length > 10) {
-            radarBatchRef.current = [];
-          }
-          radarBatchRef.current.push({ angle: a, distance: d });
-          // Batch updates: update React state every 5 points to avoid excessive re-renders
-          if (radarBatchRef.current.length % 5 === 0 || a >= 163 || a <= 17) {
-            setRadarData([...radarBatchRef.current]);
-          }
-        }
+        // Batch format: "15,42|20,35|25,28|..."
+        const points = m.split('|').map(pair => {
+          const [a, d] = pair.split(',').map(Number);
+          return { angle: a, distance: d };
+        }).filter(p => !isNaN(p.angle) && !isNaN(p.distance));
+        if (points.length > 0) setRadarData(points);
       }
     });
     setClient(mc);
@@ -245,11 +240,22 @@ const App = () => {
   // Actions
   const pub = (t, m) => { if (client && isConnected) client.publish('ankit/bot/' + t, m); };
   const updatePID = (p, i, d) => { setKp(p); setKi(i); setKd(d); pub('pid', `${p},${i},${d}`); };
-  const sendCommand = cmd => { pub('command', cmd); if (cmd === 'START') setBotStatus('Moving'); else if (cmd === 'STOP') setBotStatus('Idle'); };
+  const sendCommand = cmd => {
+    pub('command', cmd);
+    if (cmd === 'START') { setBotStatus('Moving'); setNavStatus('FOLLOWING'); }
+    else if (cmd === 'STOP') { setBotStatus('Idle'); setNavStatus('STOPPED'); }
+  };
   const changeMode = m => { setDriveMode(m); pub('mode', m); };
   const manualDrive = dir => { if (botStatus === 'Moving') pub('manual', dir); };
-  const navigate = route => { pub('route', route); setBotStatus('Moving'); };
-  const triggerScan = () => { pub('command', 'SCAN'); };
+  const navigate = route => { pub('route', route); setBotStatus('Moving'); setNavStatus('ROUTE_LOADED'); };
+  const triggerScan = () => {
+    pub('command', 'SCAN');
+    setNavStatus('SCANNING');
+    // Auto-reset if bot disconnects during scan
+    setTimeout(() => {
+      setNavStatus(prev => prev === 'SCANNING' ? 'IDLE' : prev);
+    }, 8000);
+  };
 
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
 

@@ -104,7 +104,7 @@ long measureDistance() {
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  long duration = pulseIn(ECHO_PIN, HIGH, 25000);
+  long duration = pulseIn(ECHO_PIN, HIGH, 12000); // 12ms timeout (~2m range, saves 13ms vs 25ms)
   if (duration == 0) return 999;
   return duration * 0.034 / 2;
 }
@@ -202,44 +202,46 @@ void publishNav(String s) {
 }
 
 // ==========================================
-// RADAR SWEEP (publishes angle,distance pairs)
+// RADAR SWEEP (batch publish — ONE message)
 // ==========================================
 void radarSweep() {
   sendLog("Radar sweep...");
   publishNav("SCANNING");
 
-  // Forward sweep: 15° → 165°
-  for (int i = 15; i <= 165; i += 2) {
+  String data = "";
+
+  // Forward sweep only: 15° → 165° in 5° steps
+  for (int i = 15; i <= 165; i += 5) {
     servoWrite(i);
-    delay(30);
+    delay(80);  // slow movement to reduce power spikes
     long dist = measureDistance();
-    if (client.connected()) {
-      client.publish("ankit/bot/radar", (String(i) + "," + String(dist)).c_str());
-    }
-    client.loop();  // keep MQTT alive during sweep
+    if (data.length() > 0) data += "|";
+    data += String(i) + "," + String(dist);
+    client.loop();  // keep MQTT alive
+    yield();        // feed watchdog
   }
 
-  // Return sweep: 165° → 15°
-  for (int i = 165; i >= 15; i -= 2) {
-    servoWrite(i);
-    delay(30);
-    long dist = measureDistance();
-    if (client.connected()) {
-      client.publish("ankit/bot/radar", (String(i) + "," + String(dist)).c_str());
-    }
-    client.loop();
-  }
+  // Smooth return to center
+  for (int i = 165; i >= 90; i -= 5) { servoWrite(i); delay(30); }
 
-  servoWrite(90);
+  // Publish ALL data as one message (no rapid-fire)
+  if (client.connected()) {
+    client.publish("ankit/bot/radar", data.c_str());
+  }
+  client.loop();
+
   sendLog("Sweep complete");
+  // Always reset nav status after scan
+  if (isRunning) publishNav("FOLLOWING");
+  else publishNav("STOPPED");
 }
 
 // ==========================================
-// OBSTACLE DETECTION (lightweight, single reading)
+// OBSTACLE DETECTION (lightweight)
 // ==========================================
 void checkObstacle() {
   static unsigned long lastCheck = 0;
-  if (millis() - lastCheck < 200) return;  // check every 200ms (5Hz)
+  if (millis() - lastCheck < 500) return;  // every 500ms (2Hz) — doesn't slow PID
   lastCheck = millis();
 
   long dist = measureDistance();
@@ -379,6 +381,7 @@ void setup() {
   // WiFi + MQTT
   setup_wifi();
   client.setServer(mqtt_server, 1883);
+  client.setBufferSize(512);  // larger buffer for radar batch data
   client.setCallback(mqttCallback);
   lastPidMs = millis();
   Serial.println("=== READY ===");
