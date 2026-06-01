@@ -361,21 +361,7 @@ void setup() {
 
   stopMotors();
 
-  // === MOTOR SELF-TEST ===
-  Serial.println("[TEST] Left forward...");
-  motorLeft(120); delay(400); motorLeft(0); delay(200);
-
-  Serial.println("[TEST] Left backward...");
-  motorLeft(-120); delay(400); motorLeft(0); delay(200);
-
-  Serial.println("[TEST] Right forward...");
-  motorRight(120); delay(400); motorRight(0); delay(200);
-
-  Serial.println("[TEST] Right backward...");
-  motorRight(-120); delay(400); motorRight(0); delay(200);
-
-  Serial.println("[TEST] Both forward...");
-  setMotors(120, 120); delay(400); stopMotors(); delay(200);
+  // Motor self-test removed to prevent brownout resets at boot.
 
   // === ULTRASONIC TEST ===
   long testDist = measureDistance();
