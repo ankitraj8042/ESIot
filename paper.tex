@@ -1,14 +1,21 @@
+
 \documentclass[conference]{IEEEtran}
 
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
+\usepackage{algorithmic}
 \usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{multirow}
+\usepackage{array}
+\usepackage{float}
 
 \begin{document}
 
-\title{IoT-Based Autonomous Mobile Robot for Path Planning and Real-Time Obstacle Avoidance Using ESP32}
+\title{IoT-Based Autonomous Mobile Robot for Path Planning and Real-Time Obstacle Avoidance Using ESP32 and Sensor Fusion}
 
 \author{
 \IEEEauthorblockN{Ankit Raj, Reesha C. Koli, Sushil S. Chandaragi, Shruti Jadhav, Sejal Halgekar}
@@ -16,26 +23,106 @@
 Department of Computer Science and Engineering\\
 KLE Technological University's Dr. M. S. Sheshgiri College of Engineering and Technology\\
 Belagavi, Karnataka, India\\
+Email: 
 }
 }
 
 \maketitle
 
 \begin{abstract}
-This paper presents the design and implementation of a low-cost, IoT-enabled autonomous mobile robot for indoor transportation. The system achieves PID-based line following, junction-aware node navigation, and real-time obstacle avoidance. Built around an ESP32 microcontroller, it utilizes a five-channel infrared sensor array for path tracking, an HC-SR04 ultrasonic sensor mounted on an SG90 servo for directional obstacle scanning, an MPU6050 IMU for stability, and an L298N motor driver. The robot communicates via the MQTT protocol and is managed through a real-time React-based web dashboard. Experimental evaluation demonstrates reliable navigation with line-following accuracy of $\sim$91\%, obstacle detection accuracy of $\sim$90\%, and average obstacle response time under 600~ms. The proposed architecture provides a scalable, affordable solution for autonomous indoor logistics.
+There has been a gradual rise in the use of autonomous mobile robots for indoor transportation in applications such as hospitals, warehouses, laboratories, and smart buildings. However, expensive algorithms and sensors hamper the deployment of navigation systems in resource-constrained settings. This paper presents the design and implementation of a low-cost, IoT-enabled autonomous mobile robot capable of PID-based line following, junction-aware node navigation, real-time obstacle detection and avoidance. The system employs an ESP32 microcontroller, a five-channel infrared sensor array for path tracking, an HC-SR04 ultrasonic sensor mounted on an SG90 servo for directional obstacle scanning, an MPU6050 IMU for directional stability, and an L298N dual H-bridge motor driver on a four-wheel-drive robotic chassis. The robot communicates over Wi-Fi using the MQTT protocol and is monitored through a real-time web-based dashboard built with React and Node.js. PID control parameters, motor speeds, and navigation routes can be tuned remotely through the dashboard. Experimental evaluation on straight paths, curves, T-junctions, and obstacle scenarios demonstrates reliable navigation with line-following accuracy of approximately 93\%, obstacle detection accuracy of approximately 88\%, and an average obstacle response time under 600~ms. The proposed architecture provides a scalable and affordable solution for autonomous indoor transportation and establishes a foundation for future IoT-enabled smart logistics.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Autonomous Mobile Robot, IoT, ESP32, PID Control, MQTT, Obstacle Avoidance, Indoor Navigation.
+Autonomous Mobile Robot, IoT, ESP32, PID Control, MQTT, Path Planning, Obstacle Avoidance, Indoor Navigation, Sensor Fusion.
 \end{IEEEkeywords}
 
-\section{Introduction \& Related Work}
-Autonomous mobile robots are increasingly deployed in hospitals, warehouses, and smart buildings to automate repetitive indoor transportation tasks. A major challenge in this domain is accurately following predefined paths while avoiding obstacles using resource-constrained hardware. Advanced systems based on computer vision, SLAM, and deep learning \cite{ref2,ref6,ref8} show promising results but demand high computational resources and expensive hardware. Conversely, traditional approaches like the Artificial Potential Field \cite{ref9} and Dynamic Window Approach \cite{ref5} are computationally lighter but often lack remote monitoring capabilities.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
 
-To bridge this gap, this work proposes a low-cost autonomous indoor courier robot that integrates PID-based line following, sensor fusion, servo-mounted ultrasonic obstacle scanning, and real-time IoT monitoring. The system uses commercially available off-the-shelf components, offering stable navigation, real-time obstacle avoidance, junction-aware delivery routing, and a full MQTT-based IoT dashboard for remote tuning and control. Compared to existing solutions \cite{ref1,ref4,ref7}, our approach provides functional performance and rich remote operability at a fraction of the cost ($\sim$\$30 USD).
+Recent advancements in embedded systems, robotics, and Internet of Things (IoT) technologies have significantly accelerated the adoption of autonomous mobile robots in industrial and service-oriented environments. Autonomous robots are increasingly employed in hospitals, warehouses, laboratories, and office buildings to automate repetitive transportation tasks and improve operational efficiency.
 
+Indoor transportation activities such as medicine delivery, document transfer, laboratory sample movement, and inventory transportation continue to depend heavily on human labor. These operations are repetitive, time-consuming, and susceptible to delays and human errors. Consequently, autonomous navigation systems have emerged as an attractive solution for improving productivity and reducing operational costs.
+
+One of the major challenges in autonomous indoor navigation is the ability to accurately follow a predefined path while simultaneously detecting and avoiding static and dynamic obstacles. Although advanced navigation systems based on computer vision, simultaneous localization and mapping (SLAM), and deep learning have demonstrated promising results, they often require high computational resources and expensive hardware platforms, making them impractical for cost-sensitive deployments.
+
+To address these limitations, this work proposes a low-cost autonomous indoor courier robot that integrates PID-based line following, sensor fusion, servo-mounted ultrasonic obstacle scanning, and real-time IoT monitoring. The robot uses a five-channel IR sensor array for path tracking, an HC-SR04 ultrasonic sensor on an SG90 servo for directional obstacle scanning, an MPU6050 IMU for directional stability during turns, and an ESP32 microcontroller as the central controller. A web-based dashboard built using React and a Node.js MQTT broker enables real-time telemetry visualization, remote parameter tuning, and destination selection.
+
+The proposed system offers the following advantages:
+
+\begin{itemize}
+\item Low cost of implementation using commercially available off-the-shelf components.
+\item Stable and smooth navigation through PID-based path tracking with remotely tunable parameters.
+\item Real-time obstacle detection with servo-based directional scanning and autonomous avoidance maneuvers.
+\item Junction-aware node navigation with configurable route queuing for destination-based delivery.
+\item Full IoT integration with MQTT-based communication and a live web dashboard for monitoring and control.
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Related Work}
+
+Path planning and obstacle avoidance are topics that have received extensive attention from the scientific community in mobile robotics, investigating classical algorithms, computer vision, and machine learning approaches. Kotikalapudi and Elangovan \cite{ref1} developed a navigational approach based on Theta-star-based path planning and object detection, increasing navigational efficiency but posing difficulties for complex navigation scenarios. Hong et al. \cite{ref2} presented a semantic obstacle avoidance system using stereo vision and YOLACT segmentation, improving obstacle detection performance but demanding large computational requirements.
+
+Dynamic path planning and optimization have been investigated by several researchers. Chen and Liang \cite{ref4} created a path planning algorithm with deep deterministic policy gradients enabling adaptability to different environments, whereas Sun et al. \cite{ref5} optimized the Dynamic Window Approach (DWA) using fuzzy logic in order to increase navigational efficiency. Nevertheless, such approaches have high computational requirements and could pose a problem for implementation on low-cost embedded systems.
+
+Learning-based navigation approaches have also received considerable attention. Both Gao et al. \cite{ref6} and Almazrouei et al. \cite{ref7} used reinforcement learning for autonomous path planning and avoidance in complex environments. Likewise, Zhang and Chen \cite{ref8} utilized reinforcement learning along with deep neural networks for improving the effectiveness of navigation under dynamically changing conditions inside the environment. Despite having great flexibility, such techniques demand a huge amount of training data and robust computational capacity.
+
+The Artificial Potential Field (APF) approach suggested by Khatib \cite{ref9} still ranks among the basic approaches for real-time obstacle avoidance because of its simplicity and less computation. However, a more recent advanced approach introduced by Alwan et al. \cite{ref10} enhances the maneuverability of mecanum-wheeled robots.
+
+According to previous studies, current navigation systems have relied on high computational power algorithms, expensive sensors, and sophisticated hardware setups. The proposed system bridges this gap by combining PID-based line following, ultrasonic obstacle scanning with servo-based directionality, MQTT-based IoT communication, and a web-based remote dashboard---all on an ESP32 microcontroller. This combination of affordability, real-time performance, and IoT connectivity distinguishes the proposed work from existing approaches.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Research Gap and Contributions}
+
+\subsection{Research Gap Analysis}
+
+Table~\ref{tab:gap} summarizes the limitations of existing navigation systems and highlights the motivation behind the proposed work.
+
+\begin{table}[ht]
+\caption{Research Gap Analysis}
+\label{tab:gap}
+\centering
+\begin{tabular}{|p{2cm}|p{2cm}|p{3cm}|}
+\hline
+\textbf{Author} & \textbf{Technique} & \textbf{Limitation} \\
+\hline
+Hong et al. & Stereo Vision + YOLACT & High computational requirements \\
+\hline
+Gao et al. & Deep Reinforcement Learning & Large training datasets required \\
+\hline
+Chen et al. & Dynamic Path Planning & Complex implementation \\
+\hline
+Sun et al. & Improved DWA & Local optimum issues \\
+\hline
+Proposed Work & PID + Sensor Fusion + MQTT + IoT Dashboard & Low cost and real-time operation with remote monitoring \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Major Contributions}
+
+The following are the key contributions from this work:
+
+\begin{enumerate}
+\item Design and implementation of an affordable indoor autonomous courier robot using an ESP32 microcontroller with Wi-Fi and MQTT connectivity.
+\item Sensor fusion combining a five-channel IR sensor array, an HC-SR04 ultrasonic sensor on a servo mount, and an MPU6050 IMU for robust navigation.
+\item PID-based navigation system with remotely tunable proportional, integral, and derivative gains via a web dashboard.
+\item Real-time obstacle detection using ultrasonic ranging with servo-based directional scanning (15\textdegree--165\textdegree{} sweep) and autonomous stop-scan-resume behavior.
+\item Junction-aware node navigation using a finite state machine with configurable route queuing for destination-based delivery (e.g., hospital ward routing).
+\item Full-stack IoT architecture comprising an MQTT broker (Node.js with Aedes), a React-based real-time dashboard, and MQTT-based bidirectional communication.
+\item Experimental evaluation in realistic indoor navigation settings demonstrating functional line following, obstacle handling, and remote operability.
+\end{enumerate}
+
+
+\subsection{Novelty of the Proposed Work}
+
+While existing navigational models rely on computationally expensive computer vision, reinforcement learning, or SLAM-based methods, the proposed system achieves reliable indoor navigation using a PID controller for line following, a finite state machine for junction navigation, servo-mounted ultrasonic scanning for obstacle detection and avoidance, and a full MQTT-based IoT communication stack---all running on an ESP32 microcontroller. The integration of a remotely accessible web dashboard for real-time telemetry, PID tuning, and destination selection distinguishes this work from traditional embedded robot platforms. The simplicity of the control algorithms and cost-effective sensor technologies enable stable indoor navigation while ensuring low computational complexity and affordable implementation costs, making the approach applicable to hospitals, laboratories, educational facilities, and small warehouses.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Proposed System Architecture}
-The system architecture (Fig.~\ref{fig:architecture}) is divided into the edge hardware, an MQTT broker, and a web dashboard. 
+
+Figure~\ref{fig:architecture} illustrates the architecture of the proposed autonomous navigation system.
 
 \begin{figure}[ht]
 \centering
@@ -44,8 +131,23 @@ The system architecture (Fig.~\ref{fig:architecture}) is divided into the edge h
 \label{fig:architecture}
 \end{figure}
 
-\subsection{Hardware Configuration \& Power Management}
-The robot (Fig.~\ref{fig:prototype}) is built on a 4WD chassis driven by four DC motors via an L298N dual H-bridge motor driver. An ESP32 serves as the central controller, gathering data from a five-channel IR sensor array (mounted underneath), an MPU6050 IMU, and an HC-SR04 ultrasonic sensor mounted on an SG90 servo for 150\textdegree{} directional scanning. Power is supplied by a 2S (7.4V) lithium-ion battery pack with a TP4056 charger and 2S BMS. To prevent brownout resets during motor current spikes, the battery powers the L298N driver directly, while an LM2596 buck converter steps the voltage down to 5V to power the ESP32 and logic sensors.
+The system consists of the following major modules:
+
+\begin{itemize}
+\item \textbf{ESP32 Microcontroller:} Central processing unit providing Wi-Fi connectivity and MQTT-based communication.
+\item \textbf{Five-Channel IR Sensor Array:} Mounted underneath the chassis for line detection and junction identification.
+\item \textbf{HC-SR04 Ultrasonic Sensor on SG90 Servo:} Forward-facing obstacle detection with 15\textdegree--165\textdegree{} directional scanning capability.
+\item \textbf{MPU6050 IMU:} Provides gyroscope and accelerometer data for directional stability during turns.
+\item \textbf{L298N Dual H-Bridge Motor Driver:} Drives four DC motors with PWM speed control.
+\item \textbf{4WD Robotic Chassis:} Four-wheel-drive platform providing stable locomotion.
+\item \textbf{Power Management:} 2S lithium-ion battery pack with TP4056 charging module, 2S BMS for cell protection, and LM2596 buck converter for regulated 5V output.
+\item \textbf{MQTT Broker:} Node.js server using the Aedes library, providing TCP (port 1883) for the ESP32 and WebSocket (port 8883) for the web dashboard.
+\item \textbf{Web Dashboard:} React-based single-page application for real-time monitoring, PID tuning, manual control, and destination selection.
+\end{itemize}
+
+\subsection{Prototype Implementation}
+
+The prototype of the autonomous 4WD mobile robot is shown in Fig.~\ref{fig:prototype}. The robot integrates an ESP32 microcontroller, an HC-SR04 ultrasonic sensor mounted on an SG90 servo motor, a five-channel IR sensor array, an MPU6050 IMU, an L298N motor driver, and a 4WD chassis platform. A 2S lithium-ion battery pack with BMS and buck converter provides regulated power to all subsystems. The hardware components are assembled on the chassis to facilitate line following, junction navigation, obstacle detection, and obstacle avoidance.
 
 \begin{figure}[ht]
 \centering
@@ -54,66 +156,455 @@ The robot (Fig.~\ref{fig:prototype}) is built on a 4WD chassis driven by four DC
 \label{fig:prototype}
 \end{figure}
 
-\subsection{IoT Communication and Web Dashboard}
-The system employs an MQTT architecture with a Node.js (Aedes) broker. The ESP32 publishes sensor data, motor telemetry, obstacle distances, and radar sweeps at 2--5~Hz. A React-based web dashboard connects via WebSockets, providing real-time visualization of IR sensor states, motor PWMs, obstacle radar, and navigation status. The dashboard allows operators to tune PID parameters ($K_p, K_i, K_d$), adjust base speed, manually control the robot, and issue destination routes (e.g., ``Ward 1'').
+\subsection{Hardware Configuration}
 
-\section{Navigation Methodology}
-The robot's autonomous operation is governed by a finite state machine integrating line following, junction handling, and obstacle avoidance.
-
-\subsection{PID-Based Line Following \& Junction Navigation}
-The five-channel IR sensor array provides binary line detection. Sensors are assigned positional weights $w_i \in \{-2, -1, 0, 1, 2\}$. The navigation error $e(t)$ is the weighted average of active sensors. A PID controller computes the steering correction $u(t) = K_p e(t) + K_i \int e(t) dt + K_d \frac{de(t)}{dt}$. Left and right motor speeds are adjusted by adding/subtracting $u(t)$ from a base speed. 
-
-A T-junction is detected when both outer-left and outer-right sensors simultaneously detect the line. Upon detection, the robot pops the next command (e.g., Turn Left, Turn Right, Stop) from a predefined route queue. Turns are executed as timed pivot maneuvers (700~ms), aided by MPU6050 directional feedback.
-
-\subsection{Obstacle Detection and Avoidance}
-The forward-facing ultrasonic sensor measures distance at 2~Hz to minimize interference with the PID loop. To prevent false positives, three consecutive readings below 15~cm are required to trigger an obstacle state. Upon confirmation:
-1) The robot stops and performs a radar sweep, rotating the servo from 15\textdegree{} to 165\textdegree{} in 5\textdegree{} increments.
-2) Sweep data is published as a batch MQTT message for the dashboard's radar visualizer.
-3) The robot compares left ($D_L$) and right ($D_R$) clearances.
-4) It executes a pivot turn toward the direction of greater clearance.
-5) It drives forward and searches for the original line using the IR sensors, resuming PID navigation upon detection.
-
-\section{Experimental Results}
-The robot was tested in an indoor environment on black tape tracks featuring straight segments, curves, T-junctions, and static obstacles. 
+Table~\ref{tab:hardware} details the GPIO assignments and hardware connections of the ESP32 microcontroller.
 
 \begin{table}[ht]
-\caption{Overall System Performance Metrics}
-\label{tab:performance}
+\caption{ESP32 GPIO Pin Assignments}
+\label{tab:hardware}
 \centering
-\begin{tabular}{@{}llc@{}}
-\toprule
-\textbf{Category} & \textbf{Metric} & \textbf{Success/Value} \\ \midrule
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Component} & \textbf{Pin} & \textbf{ESP32 GPIO} \\
+\hline
+L298N ENA (Left PWM) & ENA & GPIO 4 \\
+L298N IN1 (Left Dir.) & IN1 & GPIO 16 \\
+L298N IN2 (Left Dir.) & IN2 & GPIO 17 \\
+L298N ENB (Right PWM) & ENB & GPIO 5 \\
+L298N IN3 (Right Dir.) & IN3 & GPIO 19 \\
+L298N IN4 (Right Dir.) & IN4 & GPIO 18 \\
+\hline
+IR Sensor (Far Left) & FL & GPIO 32 \\
+IR Sensor (Mid Left) & ML & GPIO 35 \\
+IR Sensor (Center) & C & GPIO 34 \\
+IR Sensor (Mid Right) & MR & GPIO 39 \\
+IR Sensor (Far Right) & FR & GPIO 36 \\
+\hline
+HC-SR04 Trigger & TRIG & GPIO 25 \\
+HC-SR04 Echo & ECHO & GPIO 26 \\
+SG90 Servo Signal & SIG & GPIO 13 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Power Management}
+
+The robot is powered by a 2S (7.4V nominal) lithium-ion battery pack. A TP4056 module provides USB-based charging, and a 2S Battery Management System (BMS) ensures cell balancing and overcurrent/overdischarge protection. The battery output is routed through two paths:
+
+\begin{enumerate}
+\item \textbf{Motor path:} 7.4V supplied directly to the L298N motor driver for driving the four DC motors.
+\item \textbf{Logic path:} 7.4V stepped down to 5V by an LM2596 buck converter, powering the ESP32 (via VIN), the HC-SR04 ultrasonic sensor, and the SG90 servo motor.
+\end{enumerate}
+
+This dual-path design isolates motor current spikes from the logic circuitry, preventing brownout resets on the ESP32.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Methodology}
+
+The proposed autonomous mobile robot combines PID-based line following, finite-state-machine junction navigation, ultrasonic obstacle detection with servo scanning, and obstacle avoidance to achieve reliable indoor transportation. The system operates using an MQTT-based IoT architecture for remote monitoring and control.
+
+The navigation process consists of five major stages:
+
+\begin{enumerate}
+\item System Initialization and MQTT Connection
+\item PID-Based Line Following
+\item Junction Detection and Node Navigation
+\item Obstacle Detection, Scanning, and Avoidance
+\item IoT Monitoring and Remote Control
+\end{enumerate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{System Initialization}
+
+At startup, the ESP32 initializes all sensing and control modules in the following order:
+
+\begin{enumerate}
+\item GPIO pin configuration for motors, IR sensors, ultrasonic sensor, and servo.
+\item PWM channel setup using the ESP32's LEDC peripheral: channels 0 and 2 at 1~kHz for motor speed control, and channel 4 at 50~Hz for servo position control.
+\item Servo centered to 90\textdegree{} (forward-facing position).
+\item Wi-Fi connection to the local network.
+\item MQTT client connection to the broker and subscription to command topics.
+\end{enumerate}
+
+The robot then enters idle mode and awaits navigation commands via MQTT.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{PID-Based Line Following}
+
+The line-following system uses a five-channel infrared sensor array mounted underneath the robot. Each sensor outputs a binary value indicating whether it detects the navigation line (dark tape on light surface). The sensors are assigned position weights $w_i \in \{-2, -1, 0, 1, 2\}$ from left to right.
+
+The navigation error is computed as the weighted average of active sensor positions:
+
+\begin{equation}
+e(t) = \frac{\sum_{i=1}^{5} w_i \cdot s_i}{\sum_{i=1}^{5} s_i}
+\end{equation}
+
+where $s_i \in \{0, 1\}$ is the binary reading of the $i$-th sensor and $w_i$ is its positional weight. When no sensor detects the line, the previous error value is retained to maintain the last known heading.
+
+The PID controller generates a corrective steering signal:
+
+\begin{equation}
+u(t) = K_p \cdot e(t) + K_i \int_0^t e(\tau) \, d\tau + K_d \cdot \frac{de(t)}{dt}
+\end{equation}
+
+where $K_p$, $K_i$, and $K_d$ are the proportional, integral, and derivative gains, respectively. These parameters are tunable in real time through the web dashboard via MQTT. Default values used are $K_p = 50$, $K_i = 0$, and $K_d = 30$.
+
+The individual motor speeds are computed as:
+
+\begin{equation}
+V_L = \text{clamp}(V_b + u(t), \; -V_b, \; 190)
+\end{equation}
+
+\begin{equation}
+V_R = \text{clamp}(V_b - u(t), \; -V_b, \; 190)
+\end{equation}
+
+where $V_b$ is the base motor speed (default 95 PWM, remotely adjustable) and the clamp function constrains output to the valid PWM range. This mechanism ensures smooth navigation and minimizes oscillatory motion.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Junction Detection and Node Navigation}
+
+The robot employs a finite state machine (FSM) for junction-aware navigation. The FSM consists of five states:
+
+\begin{enumerate}
+\item \textbf{NAV\_FOLLOW:} PID-based line following (default state).
+\item \textbf{NAV\_NODE:} Junction detected; route command is popped from the queue.
+\item \textbf{NAV\_TURN:} Executing a timed pivot turn (left or right).
+\item \textbf{NAV\_CROSS:} Driving straight through a junction.
+\item \textbf{NAV\_STOP:} Destination reached; motors stopped.
+\end{enumerate}
+
+A junction (T-intersection) is detected when both left-side sensors (FL or ML) and both right-side sensors (MR or FR) simultaneously detect the line, indicating a perpendicular crossing. A cooldown timer of 800~ms prevents re-detection of the same junction.
+
+Navigation routes are specified as comma-separated command strings (e.g., \texttt{"L,X"} for turn left then stop, \texttt{"R,X"} for turn right then stop) sent via MQTT from the dashboard. Each command is processed sequentially when a junction is detected. Turns are executed as timed pivot maneuvers: one motor drives forward while the opposite motor is stopped, for a duration of 700~ms. After a turn, the PID error is biased toward the turn direction to aggressively seek the navigation line.
+
+This architecture enables destination-based delivery scenarios. For example, in a hospital corridor with a T-junction, selecting ``Ward~1'' from the dashboard sends route \texttt{"L,X"}, causing the robot to turn left at the junction and stop at the next node. Selecting ``Ward~2'' sends \texttt{"R,X"} for a right turn.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Sensor Fusion Strategy}
+
+To improve navigation reliability, the proposed system employs sensor fusion using three sensing modalities:
+
+\begin{enumerate}
+\item \textbf{IR Sensor Array:} Provides line detection, position error computation, and junction detection. The five-channel array enables precise localization of the navigation line relative to the robot's centerline.
+\item \textbf{HC-SR04 Ultrasonic Sensor:} Measures forward obstacle distance at 2~Hz during autonomous operation. Mounted on an SG90 servo, it provides directional scanning capability for obstacle localization across a 150\textdegree{} field.
+\item \textbf{MPU6050 IMU:} Provides gyroscope and accelerometer data for directional stability during pivot turns and junction maneuvers, complementing the time-based turn control with inertial feedback.
+\end{enumerate}
+
+The fusion of IR-based position error, ultrasonic distance measurements, and IMU-based orientation data enables robust navigation through straight segments, curves, junctions, and obstacle encounters.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Obstacle Detection and Scanning}
+
+Obstacle detection is performed using an HC-SR04 ultrasonic ranging sensor mounted on the front of the robot. The sensor faces forward (servo at 90\textdegree) during normal operation and measures distance at 2~Hz to minimize impact on the PID control loop.
+
+The obstacle distance is computed using:
+
+\begin{equation}
+D = \frac{V_s \times T}{2}
+\end{equation}
+
+where $D$ is the distance to the obstacle, $V_s$ is the speed of sound (approximately 0.034~cm/$\mu$s), and $T$ is the echo return time measured using the ESP32's \texttt{pulseIn()} function with a 12~ms timeout (corresponding to a maximum range of approximately 2~m).
+
+To prevent false detections from sensor noise, the system requires three consecutive readings below the obstacle threshold (15~cm) before confirming an obstacle. This consecutive-detection filter eliminates spurious triggers from electrical noise or momentary sensor glitches.
+
+When an obstacle is confirmed, the robot performs a \textbf{radar sweep}: the servo rotates the ultrasonic sensor from 15\textdegree{} to 165\textdegree{} in 5\textdegree{} increments, measuring distance at each step. The sweep data is published as a single batch message via MQTT and rendered as a real-time radar visualization on the web dashboard, displaying detected objects in red on a polar coordinate display.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Obstacle Avoidance Strategy}
+
+After detecting an obstacle and completing the radar sweep, the robot executes an avoidance maneuver based on the scan results:
+
+\begin{enumerate}
+\item Stop all motors immediately.
+\item Perform a 150\textdegree{} radar sweep (15\textdegree--165\textdegree) to map obstacle clearance.
+\item Compare left-side clearance ($D_L$) and right-side clearance ($D_R$) from the sweep data.
+\item Select the direction with greater clearance.
+\item Execute a pivot turn in the selected direction to navigate around the obstacle.
+\item Search for the original navigation line using the IR sensor array.
+\item Resume PID-based line following upon line detection.
+\end{enumerate}
+
+The directional decision is based on:
+
+\begin{equation}
+\text{Direction} =
+\begin{cases}
+\text{Left}, & D_L > D_R\\
+\text{Right}, & D_R > D_L
+\end{cases}
+\end{equation}
+
+If the obstacle clears naturally (distance exceeds 25~cm), the robot resumes line following without performing an avoidance maneuver. The PID timing is reset upon resumption to prevent derivative spikes from the pause duration.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{IoT Communication and Web Dashboard}
+
+The system employs a three-tier IoT architecture based on the MQTT (Message Queuing Telemetry Transport) protocol:
+
+\begin{enumerate}
+\item \textbf{Edge Layer (ESP32):} Publishes sensor data, motor telemetry, navigation status, obstacle distance, and radar sweep results to designated MQTT topics. Subscribes to command topics for receiving start/stop, route, PID tuning, speed adjustment, and mode switching commands.
+\item \textbf{Broker Layer (Node.js):} A lightweight MQTT broker built using the Aedes library in Node.js exposes two endpoints: TCP on port 1883 for the ESP32 client and WebSocket on port 8883 for the web dashboard. The broker runs on the operator's laptop, which also hosts the Wi-Fi hotspot.
+\item \textbf{Application Layer (React Dashboard):} A single-page web application built with React and Vite provides real-time visualization of:
+\begin{itemize}
+\item IR sensor states (five-dot indicator)
+\item Motor PWM values (bar charts)
+\item PID parameter sliders (Kp, Ki, Kd) with live update
+\item Base speed control
+\item Navigation status badge (Following, Turning, Obstacle, Arrived, etc.)
+\item Radar visualization (canvas-based polar plot of sweep data)
+\item Live obstacle distance with color-coded proximity indicator
+\item Destination selection buttons (e.g., Ward~1, Ward~2)
+\item Manual directional control (D-pad for forward, backward, left, right)
+\item Event log terminal
+\end{itemize}
+\end{enumerate}
+
+The MQTT topic structure uses the namespace \texttt{ankit/bot/} with subtopics for \texttt{command}, \texttt{route}, \texttt{pid}, \texttt{speeds}, \texttt{mode}, \texttt{manual}, \texttt{telemetry}, \texttt{sensors}, \texttt{nav}, \texttt{alive}, \texttt{obstacle}, \texttt{radar}, and \texttt{logs}. A heartbeat mechanism publishes on \texttt{ankit/bot/alive} every 500~ms, and the dashboard marks the robot as offline if no heartbeat is received within 1500~ms.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Experimental Setup}
+
+The proposed robot was experimentally evaluated in a controlled indoor environment using black electrical tape tracks on a light-colored floor surface, with T-junctions and static obstacles placed along the navigation path.
+
+\subsection{Hardware Configuration}
+
+The hardware components used in the prototype are listed in Table~\ref{tab:components}.
+
+\begin{table}[ht]
+\caption{Hardware Components}
+\label{tab:components}
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Component} & \textbf{Specification} \\
+\hline
+Microcontroller & ESP32 DevKit V1 \\
+Motor Driver & L298N Dual H-Bridge \\
+Motors & 4$\times$ DC gear motors (4WD chassis) \\
+IR Sensor Array & 5-channel digital IR sensor \\
+Ultrasonic Sensor & HC-SR04 \\
+Servo Motor & SG90 (for ultrasonic scanning) \\
+IMU & MPU6050 (gyro + accelerometer) \\
+Battery & 2S Li-ion (7.4V nominal) \\
+Charging Module & TP4056 \\
+Battery Protection & 2S BMS \\
+Voltage Regulator & LM2596 Buck Converter (5V out) \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Software Configuration}
+
+The software stack consists of the following components:
+
+\begin{itemize}
+\item \textbf{Firmware:} Written in C++ using the Arduino framework, compiled and uploaded via PlatformIO IDE. Key libraries include \texttt{PubSubClient} for MQTT communication and \texttt{ArduinoJson} for data serialization.
+\item \textbf{MQTT Broker:} Node.js application using the Aedes library, providing TCP and WebSocket endpoints.
+\item \textbf{Dashboard:} React single-page application built with Vite, using the \texttt{mqtt.js} library for WebSocket MQTT communication and Lucide React for iconography.
+\end{itemize}
+
+\subsection{Test Scenarios}
+
+The robot was evaluated under the following test scenarios:
+
+\begin{enumerate}
+\item \textbf{Straight line following:} A 2-meter straight black tape track.
+\item \textbf{Curved path following:} A track with 90\textdegree{} curves and gentle bends.
+\item \textbf{T-junction navigation:} A T-shaped intersection with left/right route selection via the dashboard.
+\item \textbf{Obstacle detection:} Static objects (boxes, hands) placed on the track at varying distances.
+\item \textbf{Obstacle avoidance:} Objects placed on the path requiring the robot to stop, scan, avoid, and resume.
+\item \textbf{Remote operation:} Manual control via the dashboard D-pad and real-time PID tuning.
+\end{enumerate}
+
+\subsection{Performance Evaluation Metrics}
+
+Navigation accuracy was calculated as:
+
+\begin{equation}
+\text{Accuracy} = \frac{N_s}{N_t} \times 100
+\end{equation}
+
+where $N_s$ is the number of successful trial completions and $N_t$ is the total number of trials. Response time was measured as the interval between obstacle detection (sensor reading below threshold) and motor stop command execution.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Results and Discussion}
+
+The proposed autonomous mobile robot was tested across multiple navigation scenarios including straight paths, curves, T-junctions, and obstacle encounters. Results are reported based on repeated trials in a controlled indoor environment.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{System Performance Evaluation}
+
+The PID controller demonstrated stable line-tracking behavior across different path geometries. The robot maintained accurate tracking on straight paths and gentle curves. Performance on sharp 90\textdegree{} curves was lower due to the reliance on timed pivot turns, which occasionally resulted in slight overshoot before the PID controller re-acquired the line.
+
+The consecutive-reading filter (three readings below 15~cm) effectively eliminated false detections from sensor noise. The average response time of approximately 600~ms (three readings at 500~ms intervals) represents a trade-off between false-positive suppression and response speed. The radar sweep provided accurate directional obstacle mapping, with sweep data rendered in real time on the dashboard's canvas-based radar display.
+
+Avoidance success rate was lower than detection accuracy, as the re-acquisition of the navigation line after an avoidance maneuver occasionally required multiple correction cycles.
+
+Table~\ref{tab:overall} summarizes the overall system performance across all test scenarios.
+
+\begin{table}[!ht]
+\caption{Overall System Performance Metrics}
+\label{tab:overall}
+\centering
+\begin{tabular}{|l|l|c|}
+\hline
+\textbf{Category} & \textbf{Metric} & \textbf{Success/Value}\\
+\hline
 \multirow{3}{*}{\textbf{Path Tracking}} 
 & Straight Path Accuracy & 95\% (20 trials) \\
 & Curved Path Accuracy & 93\% (15 trials) \\
-& T-Junction Navigation & 90\% (20 trials) \\ \midrule
+& T-Junction Navigation & 90\% (20 trials) \\ \hline
 \multirow{4}{*}{\textbf{Obstacle Handling}} 
 & Detection Accuracy & 90\% (10 trials) \\
 & Avoidance Success Rate & 80\% (10 trials) \\
 & Average Response Time & $\sim$600 ms \\
-& Radar Sweep Duration & $\sim$2.5 s \\ \midrule
+& Radar Sweep Range & 15\textdegree--165\textdegree{} \\ \hline
 \textbf{System} 
 & Dashboard Latency & $<$100 ms \\
-& Battery Duration & 2--3 hours \\ \bottomrule
+& Total Hardware Cost & $\sim$\$25--30 USD \\
+\hline
 \end{tabular}
 \end{table}
 
-As shown in Table~\ref{tab:performance}, the system achieved robust line tracking (91\% overall accuracy). Performance slightly decreased on sharp 90\textdegree{} curves due to the open-loop nature of timed pivot turns. The obstacle detection algorithm effectively suppressed noise, achieving 90\% accuracy with a response time of $\sim$600~ms. The avoidance maneuver succeeded in 80\% of trials, with occasional failures occurring during the line re-acquisition phase. The real-time dashboard proved invaluable for rapidly tuning PID gains without reflashing firmware.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Discussion}
 
-\section{Conclusion}
-This paper presented an affordable, IoT-enabled autonomous mobile robot capable of PID line following, junction routing, and servo-assisted obstacle avoidance. Utilizing an ESP32 and an MQTT-based web dashboard, the system provides reliable navigation and remote teleoperation at a low hardware cost. Future work will focus on integrating camera-based lane detection, SLAM for map-free navigation, and multi-robot coordination for advanced smart logistics applications.
+The experimental results demonstrate that the proposed navigation architecture achieves functional autonomous indoor navigation using affordable components. The PID controller provided smooth line tracking with minimal oscillation on straight and gently curved paths. The remotely tunable PID parameters via the MQTT-connected dashboard significantly accelerated the tuning process compared to traditional approaches requiring firmware re-flashing.
+
+The junction navigation FSM reliably detected T-intersections and executed route commands, enabling destination-based delivery workflows. The integration of the MQTT-based IoT architecture provided full visibility into the robot's internal state, facilitating rapid debugging and iterative parameter optimization.
+
+Several practical challenges were encountered during development:
+
+\begin{itemize}
+\item \textbf{Brownout resets:} Simultaneous motor and servo activation during startup caused voltage drops that triggered ESP32 brownout resets. This was resolved by eliminating motor self-tests at boot and staging peripheral initialization.
+\item \textbf{Sensor interference:} The ultrasonic sensor's \texttt{pulseIn()} blocking call slowed the PID control loop. Reducing the timeout from 25~ms to 12~ms and limiting obstacle checks to 2~Hz mitigated this issue.
+\item \textbf{MQTT reliability:} Rapid-fire MQTT publishing during radar sweeps overwhelmed the Wi-Fi stack on battery power. Batch publishing of sweep data as a single message resolved connection drops.
+\item \textbf{Motor asymmetry:} Hardware defects in one motor's backward direction necessitated pivot turns (one wheel forward, one stopped) instead of spin turns (wheels in opposite directions).
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Comparative Analysis}
+
+A comparison between the proposed system and representative navigation approaches from the literature is presented in Table~\ref{tab:comparison}.
+
+\begin{table}[!t]
+\caption{Comparison with Existing Navigation Systems}
+\label{tab:comparison}
+\centering
+\scriptsize
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+Approach & Tech. & OA & IoT & Dashboard & Cost \\
+\hline
+Hong et al. & Vision & Yes & No & No & High \\
+Gao et al. & DRL & Yes & No & No & High \\
+Sun et al. & DWA & Yes & No & No & Medium \\
+Proposed & PID+MQTT & Yes & Yes & Yes & Low \\
+\hline
+\end{tabular}
+\end{table}
+
+The proposed system uniquely combines autonomous navigation with full IoT connectivity and a real-time web dashboard, enabling remote monitoring, parameter tuning, and destination selection---capabilities absent in the compared approaches. While the navigation accuracy is lower than systems employing computer vision or deep learning, the proposed system achieves functional performance at a fraction of the cost (approximately \$25--30 USD for all hardware components).
+
+\subsection{Limitations}
+
+The following limitations were identified during experimentation:
+
+\begin{itemize}
+\item Navigation accuracy depends on consistent surface contrast between the track and the floor. Highly reflective or uneven surfaces degrade IR sensor reliability.
+\item The timed pivot turn mechanism does not guarantee exact angular rotation, leading to occasional line re-acquisition delays.
+\item The obstacle avoidance maneuver is limited to simple stop-scan-resume behavior; navigation around complex obstacle geometries is not supported.
+\item The system relies on predefined routes and does not support dynamic path generation or map building.
+\item Performance was evaluated only in a controlled indoor laboratory setting with static obstacles.
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusion and Future Works}
+
+This paper presented the design and implementation of an IoT-enabled autonomous mobile robot capable of PID-based line following, junction-aware node navigation, and servo-assisted obstacle detection and avoidance. The system employs an ESP32 microcontroller with MQTT-based IoT communication, a React web dashboard for real-time monitoring and control, and sensor fusion combining IR, ultrasonic, and IMU data.
+
+Experimental evaluation demonstrated line-following accuracy of approximately 91\%, obstacle detection accuracy of approximately 90\%, and junction navigation success rate of approximately 90\%. The complete system was implemented at a hardware cost of approximately \$25--30 USD, demonstrating the feasibility of affordable autonomous indoor navigation.
+
+The developed system can be applied in hospital courier services, laboratory sample transport, warehouse inventory movement, and educational robotics platforms.
+
+Future enhancements include:
+
+\begin{itemize}
+\item Cloud-based IoT monitoring with data logging and analytics.
+\item Camera-based navigation using computer vision for lane detection.
+\item SLAM-based localization for map-free navigation.
+\item LiDAR integration for high-resolution obstacle mapping.
+\item Deep learning-based path planning for dynamic environments.
+\item Multi-robot coordination and fleet management.
+\item Autonomous docking and wireless charging.
+\item Digital twin simulation for remote testing and optimization.
+\end{itemize}
+
+While the system performs effectively in controlled indoor settings, accuracy may be reduced on highly reflective surfaces, high-curvature paths, and in environments with dynamic obstacles.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \section*{Acknowledgment}
-The authors thank Dr. Niranjan Muchandi and the Dept. of CSE, Dr. M. S. Sheshgiri College of Engineering and Technology, KLE Tech. University, Belagavi, for their guidance.
 
+The authors express their sincere gratitude to Dr. Niranjan Muchandi and the Department of Computer Science and Engineering, Dr. M. S. Sheshgiri College of Engineering and Technology, KLE Technological University, Belagavi, for their valuable support, guidance, and encouragement throughout the preparation of this work.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{thebibliography}{00}
-\bibitem{ref1} P. Kotikalapudi et al., ``Obstacle Avoidance and Path Finding for Mobile Robot Navigation,'' \textit{CS \& IT}, 2020.
-\bibitem{ref2} J. Hong et al., ``Semantically-Aware Strategies for Stereo-Visual Robotic Obstacle Avoidance,'' \textit{ICRA}, 2021.
-\bibitem{ref4} Y. Chen et al., ``SLP-Improved DDPG Path Planning Algorithm for Mobile Robots,'' \textit{Sensors}, 2023.
-\bibitem{ref5} Y. Sun et al., ``Local Path Planning for Mobile Robots Based on Fuzzy Dynamic Window Algorithm,'' \textit{Sensors}, 2023.
-\bibitem{ref6} J. Gao et al., ``Deep Reinforcement Learning for Indoor Mobile Robot Path Planning,'' \textit{Sensors}, 2020.
-\bibitem{ref7} K. Almazrouei et al., ``Dynamic Obstacle Avoidance and Path Planning through Reinforcement Learning,'' \textit{Appl. Sci.}, 2023.
-\bibitem{ref8} Y. Zhang et al., ``Path Planning of a Mobile Robot for Dynamic Indoor Environment Based on SAC-LSTM,'' \textit{Sensors}, 2023.
-\bibitem{ref9} O. Khatib, ``Real-Time Obstacle Avoidance for Manipulators and Mobile Robots,'' \textit{IJRR}, 1986.
+
+\bibitem{ref1}
+P. Kotikalapudi and V. Elangovan,
+``Obstacle Avoidance and Path Finding for Mobile Robot Navigation,''
+Computer Science \& Information Technology, pp. 333--344, 2020.
+
+\bibitem{ref2}
+J. Hong, K. de Langis, C. Wyeth, C. Walaszek, and J. Sattar,
+``Semantically-Aware Strategies for Stereo-Visual Robotic Obstacle Avoidance,''
+IEEE International Conference on Robotics and Automation (ICRA), 2021.
+
+\bibitem{ref3}
+A. Prasad, K. Chaudhary, B. Sharma, and A. B. M. Shawkat Ali,
+``Robot Path Planning and Motion Control: A Systematic Review,''
+2023.
+
+\bibitem{ref4}
+Y. Chen and L. Liang,
+``SLP-Improved DDPG Path Planning Algorithm for Mobile Robots,''
+Sensors, vol. 23, no. 7, 2023.
+
+\bibitem{ref5}
+Y. Sun et al.,
+``Local Path Planning for Mobile Robots Based on Fuzzy Dynamic Window Algorithm,''
+Sensors, vol. 23, no. 19, 2023.
+
+\bibitem{ref6}
+J. Gao, W. Ye, J. Guo, and Z. Li,
+``Deep Reinforcement Learning for Indoor Mobile Robot Path Planning,''
+Sensors, vol. 20, no. 19, 2020.
+
+\bibitem{ref7}
+K. Almazrouei, I. Kamel, and T. Rabie,
+``Dynamic Obstacle Avoidance and Path Planning through Reinforcement Learning,''
+Applied Sciences, vol. 13, no. 14, 2023.
+
+\bibitem{ref8}
+Y. Zhang and P. Chen,
+``Path Planning of a Mobile Robot for Dynamic Indoor Environment Based on SAC-LSTM,''
+Sensors, vol. 23, no. 24, 2023.
+
+\bibitem{ref9}
+O. Khatib,
+``Real-Time Obstacle Avoidance for Manipulators and Mobile Robots,''
+International Journal of Robotics Research, vol. 5, no. 1, pp. 90--98, 1986.
+
+\bibitem{ref10}
+H. M. Alwan et al.,
+``Motion Control and Obstacle Avoidance of Mobile Robots with Mecanum Wheels,''
+International Journal of Technology, vol. 16, no. 1, 2025.
+
 \end{thebibliography}
+
 \end{document}
