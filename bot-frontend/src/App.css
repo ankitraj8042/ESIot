@@ -73,6 +73,29 @@ body {
 .nav-done { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
 .nav-stopped { background: rgba(239,68,68,0.1); color: #fca5a5; border: 1px solid rgba(239,68,68,0.2); }
 .nav-idle { background: rgba(148,163,184,0.1); color: #94a3b8; border: 1px solid rgba(148,163,184,0.15); }
+.nav-obstacle { background: rgba(239,68,68,0.2); color: #fca5a5; border: 1px solid rgba(239,68,68,0.4); animation: pulse 0.6s infinite; }
+.nav-scanning { background: rgba(98,245,31,0.15); color: #86efac; border: 1px solid rgba(98,245,31,0.3); animation: pulse 0.8s infinite; }
+
+/* Radar Card */
+.radar-card { transition: border-color 0.3s, box-shadow 0.3s; }
+.radar-card.blocked { border-color: rgba(239,68,68,0.5); box-shadow: 0 0 16px rgba(239,68,68,0.15); }
+.radar-card .card-head { justify-content: flex-start; }
+.radar-card .card-head h3 { flex: 1; }
+.scan-btn { margin-left: auto; padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(98,245,31,0.3); background: rgba(98,245,31,0.08); color: #86efac; font-size: 0.65rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.scan-btn:hover { background: rgba(98,245,31,0.15); }
+.scan-btn:active { transform: scale(0.95); }
+.scan-btn.scanning { animation: pulse 0.6s infinite; cursor: wait; }
+.scan-btn:disabled { opacity: 0.5; cursor: wait; }
+.radar-wrapper { display: flex; flex-direction: column; gap: 6px; }
+.radar-canvas { width: 100%; border-radius: 6px; background: #020617; }
+.radar-footer { display: flex; align-items: center; justify-content: space-between; }
+.dist-live { display: flex; align-items: baseline; gap: 4px; }
+.dist-value { font-family: monospace; font-size: 1.4rem; font-weight: 800; transition: color 0.2s; }
+.dist-value.green { color: var(--green); }
+.dist-value.orange { color: var(--orange); }
+.dist-value.red { color: var(--red); }
+.dist-unit { font-size: 0.65rem; color: var(--muted); font-weight: 600; }
+.obstacle-alert { margin-top: 4px; padding: 5px 8px; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; color: #fca5a5; font-size: 0.7rem; font-weight: 600; text-align: center; animation: pulse 0.8s infinite; }
 
 /* Grid Layout */
 .grid-layout { display: grid; grid-template-columns: 0.9fr 1.1fr 1.2fr; gap: 10px; flex: 1; min-height: 0; }

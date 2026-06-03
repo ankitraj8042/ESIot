@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import mqtt from 'mqtt';
-import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation } from 'lucide-react';
+import { Play, Square, Activity, Wifi, MapPin, Terminal, SlidersHorizontal, Gauge, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, GitBranch, Navigation, Radar } from 'lucide-react';
 import './App.css';
 
 // ============================================
@@ -30,6 +30,148 @@ const Slider = memo(({ label, value, onChange, min, max, step, orange }) => {
   );
 });
 
+// ============================================
+// RADAR CANVAS COMPONENT
+// ============================================
+const RadarDisplay = memo(({ radarData, obstacleDist }) => {
+  const canvasRef = useRef(null);
+  const MAX_DIST = 40; // cm max range on radar
+
+  const drawRadar = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h - 8;
+    const maxR = h - 20;
+
+    // Distance rings
+    ctx.strokeStyle = 'rgba(98, 245, 31, 0.2)';
+    ctx.lineWidth = 1;
+    for (let d = 10; d <= MAX_DIST; d += 10) {
+      const r = (d / MAX_DIST) * maxR;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, Math.PI, 0);
+      ctx.stroke();
+    }
+
+    // Base line
+    ctx.strokeStyle = 'rgba(98, 245, 31, 0.3)';
+    ctx.beginPath();
+    ctx.moveTo(cx - maxR - 5, cy);
+    ctx.lineTo(cx + maxR + 5, cy);
+    ctx.stroke();
+
+    // Angle lines
+    for (let a = 30; a <= 150; a += 30) {
+      const rad = (a * Math.PI) / 180;
+      ctx.strokeStyle = 'rgba(98, 245, 31, 0.15)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + maxR * Math.cos(Math.PI - rad), cy - maxR * Math.sin(rad));
+      ctx.stroke();
+    }
+
+    // Distance labels
+    ctx.fillStyle = 'rgba(98, 245, 31, 0.5)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    for (let d = 10; d <= MAX_DIST; d += 10) {
+      const r = (d / MAX_DIST) * maxR;
+      ctx.fillText(`${d}`, cx + r - 5, cy + 10);
+    }
+
+    // Angle labels
+    ctx.textAlign = 'center';
+    ctx.font = '8px monospace';
+    for (let a = 30; a <= 150; a += 30) {
+      const rad = (a * Math.PI) / 180;
+      const lr = maxR + 14;
+      ctx.fillText(`${a}°`, cx + lr * Math.cos(Math.PI - rad), cy - lr * Math.sin(rad) + 3);
+    }
+
+    if (radarData.length === 0) {
+      ctx.fillStyle = 'rgba(98, 245, 31, 0.3)';
+      ctx.font = '12px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Press SCAN to sweep', cx, cy - maxR / 2);
+      return;
+    }
+
+    // Red lines for detected objects
+    radarData.forEach(({ angle, distance }) => {
+      if (distance > 0 && distance < MAX_DIST) {
+        const rad = (angle * Math.PI) / 180;
+        const r = (distance / MAX_DIST) * maxR;
+        const objX = cx + r * Math.cos(Math.PI - rad);
+        const objY = cy - r * Math.sin(rad);
+        const edgeX = cx + maxR * Math.cos(Math.PI - rad);
+        const edgeY = cy - maxR * Math.sin(rad);
+
+        ctx.strokeStyle = 'rgba(255, 10, 10, 0.6)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(objX, objY);
+        ctx.lineTo(edgeX, edgeY);
+        ctx.stroke();
+      }
+    });
+
+    // Green lines for clear path
+    radarData.forEach(({ angle, distance }) => {
+      if (distance >= MAX_DIST || distance <= 0) {
+        const rad = (angle * Math.PI) / 180;
+        const endX = cx + maxR * Math.cos(Math.PI - rad);
+        const endY = cy - maxR * Math.sin(rad);
+        ctx.strokeStyle = 'rgba(30, 250, 60, 0.12)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+      }
+    });
+
+    // Sweep line (last data point)
+    const last = radarData[radarData.length - 1];
+    if (last) {
+      const rad = (last.angle * Math.PI) / 180;
+      ctx.strokeStyle = 'rgba(30, 250, 60, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + maxR * Math.cos(Math.PI - rad), cy - maxR * Math.sin(rad));
+      ctx.stroke();
+    }
+
+  }, [radarData]);
+
+  useEffect(() => { drawRadar(); }, [drawRadar]);
+
+  const distColor = obstacleDist < 15 ? 'red' : obstacleDist < 25 ? 'orange' : 'green';
+
+  return (
+    <div className="radar-wrapper">
+      <canvas ref={canvasRef} width={420} height={220} className="radar-canvas" />
+      <div className="radar-footer">
+        <div className="dist-live">
+          <span className={`dist-value ${distColor}`}>{obstacleDist >= 999 ? '—' : obstacleDist}</span>
+          <span className="dist-unit">cm ahead</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ============================================
+// MAIN APP
+// ============================================
 const App = () => {
   const [client, setClient] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -47,13 +189,18 @@ const App = () => {
   const [sensors, setSensors] = useState([0, 0, 0, 0, 0]);
   const [logs, setLogs] = useState([]);
   const [navStatus, setNavStatus] = useState('IDLE');
+  const [obstacleDist, setObstacleDist] = useState(999);
+  const [radarData, setRadarData] = useState([]);
   const logsEndRef = useRef(null);
   const lastHeartbeat = useRef(0);
 
   // Heartbeat checker
   useEffect(() => {
     const id = setInterval(() => {
-      if (lastHeartbeat.current > 0 && Date.now() - lastHeartbeat.current > 1500) setIsBotLive(false);
+      if (lastHeartbeat.current > 0 && Date.now() - lastHeartbeat.current > 1500) {
+        setIsBotLive(false);
+        setNavStatus('IDLE');
+      }
     }, 1000);
     return () => clearInterval(id);
   }, []);
@@ -63,7 +210,7 @@ const App = () => {
     const mc = mqtt.connect('ws://192.168.137.1:8883');
     mc.on('connect', () => {
       setIsConnected(true);
-      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive'].forEach(t => mc.subscribe('ankit/bot/' + t));
+      ['status', 'logs', 'telemetry', 'sensors', 'nav', 'alive', 'obstacle', 'radar'].forEach(t => mc.subscribe('ankit/bot/' + t));
     });
     mc.on('close', () => { setIsConnected(false); setIsBotLive(false); });
     mc.on('message', (topic, msg) => {
@@ -72,10 +219,19 @@ const App = () => {
       setIsBotLive(true);
 
       if (topic.endsWith('/status')) setBotStatus(m);
-      else if (topic.endsWith('/logs')) setLogs(p => [...p, `[${new Date().toLocaleTimeString()}] ${m}`].slice(-20));
+      else if (topic.endsWith('/logs')) setLogs(p => [...p, `[${new Date().toLocaleTimeString()}] ${m}`].slice(-30));
       else if (topic.endsWith('/telemetry')) { const [l, r] = m.split(','); setLeftMotor(+l); setRightMotor(+r); }
       else if (topic.endsWith('/sensors')) setSensors(m.split(',').map(Number));
       else if (topic.endsWith('/nav')) setNavStatus(m);
+      else if (topic.endsWith('/obstacle')) setObstacleDist(parseInt(m) || 999);
+      else if (topic.endsWith('/radar')) {
+        // Batch format: "15,42|20,35|25,28|..."
+        const points = m.split('|').map(pair => {
+          const [a, d] = pair.split(',').map(Number);
+          return { angle: a, distance: d };
+        }).filter(p => !isNaN(p.angle) && !isNaN(p.distance));
+        if (points.length > 0) setRadarData(points);
+      }
     });
     setClient(mc);
     return () => mc.end();
@@ -84,28 +240,39 @@ const App = () => {
   // Actions
   const pub = (t, m) => { if (client && isConnected) client.publish('ankit/bot/' + t, m); };
   const updatePID = (p, i, d) => { setKp(p); setKi(i); setKd(d); pub('pid', `${p},${i},${d}`); };
-  const sendCommand = cmd => { pub('command', cmd); setBotStatus(cmd === 'START' ? 'Moving' : 'Idle'); };
+  const sendCommand = cmd => {
+    pub('command', cmd);
+    if (cmd === 'START') { setBotStatus('Moving'); setNavStatus('FOLLOWING'); }
+    else if (cmd === 'STOP') { setBotStatus('Idle'); setNavStatus('STOPPED'); }
+  };
   const changeMode = m => { setDriveMode(m); pub('mode', m); };
   const manualDrive = dir => { if (botStatus === 'Moving') pub('manual', dir); };
-
-  // Navigate: sends route → firmware auto-starts
-  const navigate = route => {
-    pub('route', route);
-    setBotStatus('Moving');
+  const navigate = route => { pub('route', route); setBotStatus('Moving'); setNavStatus('ROUTE_LOADED'); };
+  const triggerScan = () => {
+    pub('command', 'SCAN');
+    setNavStatus('SCANNING');
+    setTimeout(() => {
+      setNavStatus(prev => prev === 'SCANNING' ? 'IDLE' : prev);
+    }, 8000);
   };
 
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
 
+  const isBlocked = navStatus === 'OBSTACLE';
+  const isScanning = navStatus === 'SCANNING';
+
   // Nav badge
   const navBadge = (() => {
-    if (navStatus.includes('TURNING_LEFT'))       return { text: '↰ Turning Left', cls: 'nav-turning' };
-    if (navStatus.includes('TURNING_RIGHT'))      return { text: '↱ Turning Right', cls: 'nav-turning' };
-    if (navStatus.includes('CROSSING'))           return { text: '⬆ Crossing', cls: 'nav-crossing' };
-    if (navStatus.includes('NODE_DETECTED'))      return { text: '📍 Node', cls: 'nav-node' };
-    if (navStatus.includes('ROUTE_LOADED'))       return { text: '📋 Route Loaded', cls: 'nav-loaded' };
-    if (navStatus.includes('DESTINATION_REACHED'))return { text: '✅ Arrived!', cls: 'nav-done' };
-    if (navStatus.includes('FOLLOWING'))          return { text: '━━ Following', cls: 'nav-follow' };
-    if (navStatus.includes('STOPPED'))            return { text: '⏹ Stopped', cls: 'nav-stopped' };
+    if (navStatus.includes('SCANNING'))            return { text: '📡 Scanning...', cls: 'nav-scanning' };
+    if (navStatus.includes('OBSTACLE'))            return { text: '⚠️ Obstacle!', cls: 'nav-obstacle' };
+    if (navStatus.includes('TURNING_LEFT'))        return { text: '↰ Turning Left', cls: 'nav-turning' };
+    if (navStatus.includes('TURNING_RIGHT'))       return { text: '↱ Turning Right', cls: 'nav-turning' };
+    if (navStatus.includes('CROSSING'))            return { text: '⬆ Crossing', cls: 'nav-crossing' };
+    if (navStatus.includes('NODE_DETECTED'))       return { text: '📍 Node', cls: 'nav-node' };
+    if (navStatus.includes('ROUTE_LOADED'))        return { text: '📋 Route Loaded', cls: 'nav-loaded' };
+    if (navStatus.includes('DESTINATION_REACHED')) return { text: '✅ Arrived!', cls: 'nav-done' };
+    if (navStatus.includes('FOLLOWING'))           return { text: '━━ Following', cls: 'nav-follow' };
+    if (navStatus.includes('STOPPED'))             return { text: '⏹ Stopped', cls: 'nav-stopped' };
     return { text: '⏸ Idle', cls: 'nav-idle' };
   })();
 
@@ -183,8 +350,21 @@ const App = () => {
             </div>
           </div>
 
-          {/* Column 3 */}
+          {/* Column 3: Radar + Motors + Logs */}
           <div className="col">
+            <div className={`card radar-card ${isBlocked ? 'blocked' : ''}`}>
+              <div className="card-head sm">
+                <Radar size={12} className="text-green" /><h3>Radar</h3>
+                <button className={`scan-btn ${isScanning ? 'scanning' : ''}`} onClick={triggerScan} disabled={isScanning}>
+                  {isScanning ? '⟳ Scanning...' : '📡 Scan'}
+                </button>
+              </div>
+              <RadarDisplay radarData={radarData} obstacleDist={obstacleDist} />
+              {isBlocked && (
+                <div className="obstacle-alert">⚠️ Obstacle detected — waiting for clear path...</div>
+              )}
+            </div>
+
             <div className="card">
               <div className="card-head sm"><Activity size={12} className="text-blue" /><h3>Motors</h3></div>
               <div className="motor-row"><span>L</span><div className="bar-bg"><div className="bar-fill blue" style={{ width: `${Math.min(Math.abs(leftMotor) / 255 * 100, 100)}%` }}></div></div><span className="mv">{leftMotor}</span></div>
